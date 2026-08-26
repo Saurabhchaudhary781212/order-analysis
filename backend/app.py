@@ -91,7 +91,7 @@ CORS(
     resources={
         r"/api/*": {
             "origins": [
-                "http://localhost:5173"
+                order-analysis-one.vercel.app
             ]
         }
     },
