@@ -25,15 +25,16 @@
 
 # if __name__ == "__main__":
 #     app.run(host="0.0.0.0", port=5000)
-
 from flask import Flask
 from flask_cors import CORS
 from routes.auth_routes import auth_bp
 
+
 app = Flask(__name__)
 
+
 # =====================================================
-# CORS CONFIGURATION
+# CORS
 # =====================================================
 
 CORS(
@@ -43,15 +44,25 @@ CORS(
             "origins": [
                 "https://order-analysis-one.vercel.app"
             ],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
+            "methods": [
+                "GET",
+                "POST",
+                "PUT",
+                "DELETE",
+                "OPTIONS"
+            ],
+            "allow_headers": [
+                "Content-Type",
+                "Authorization"
+            ],
             "supports_credentials": True
         }
     }
 )
 
+
 # =====================================================
-# REGISTER ROUTES
+# REGISTER BLUEPRINT
 # =====================================================
 
 app.register_blueprint(auth_bp)
@@ -63,6 +74,7 @@ app.register_blueprint(auth_bp)
 
 @app.route("/")
 def home():
+
     return {
         "success": True,
         "message": "Order Analytics API is running"
@@ -74,6 +86,7 @@ def home():
 # =====================================================
 
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=5000
