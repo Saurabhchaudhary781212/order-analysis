@@ -5,10 +5,7 @@ from flask import Blueprint, request, jsonify
 # AUTH BLUEPRINT
 # =====================================================
 
-auth_bp = Blueprint(
-    "auth",
-    __name__
-)
+auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
 # =====================================================
@@ -19,6 +16,7 @@ auth_bp = Blueprint(
     "/register",
     methods=["POST"]
 )
+app.register_blueprint(auth_bp)
 def register():
 
     data = request.get_json()
