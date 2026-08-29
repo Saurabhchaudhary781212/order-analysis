@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FiUploadCloud,
   FiFile,
@@ -7,6 +8,7 @@ import {
 import "./FileUpload.css";
 
 const FileUpload = () => {
+   const navigate = useNavigate();
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
 
@@ -108,7 +110,7 @@ const FileUpload = () => {
       );
 
       // Go to dashboard
-      window.location.href = "/dashboard";
+    navigate("/dashboard");
     } catch (error) {
       console.error("Upload error:", error);
 
