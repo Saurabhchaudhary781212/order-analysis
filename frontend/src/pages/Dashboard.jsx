@@ -1306,8 +1306,8 @@ const doughnutData = useMemo(() => {
 
                 <h3 className="mt-2 text-3xl font-bold text-slate-800">
 
-                  {backendSummary.columns ??
-                    columns.length}
+                  {/* {backendSummary.columns ??
+                    columns.length} */}
 
                 </h3>
 
