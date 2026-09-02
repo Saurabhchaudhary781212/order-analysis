@@ -1296,7 +1296,7 @@ const doughnutData = useMemo(() => {
 
           <div className="rounded-2xl bg-white p-6 shadow-sm">
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between text-sm">
 
               <div>
 
