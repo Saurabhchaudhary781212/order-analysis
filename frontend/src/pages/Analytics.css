@@ -545,3 +545,52 @@
         grid-template-columns: 1fr;
     }
 }
+
+
+/* =========================================
+   DOWNLOAD REPORT BUTTON
+========================================= */
+
+.analytics-download-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 10px;
+    background: #111827;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.analytics-download-btn:hover {
+    background: #1f2937;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.analytics-download-btn:active {
+    transform: translateY(0);
+}
+
+.analytics-download-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (max-width: 768px) {
+    .analytics-download-btn {
+        padding: 9px 12px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 520px) {
+    .analytics-download-btn {
+        width: 100%;
+    }
+}
