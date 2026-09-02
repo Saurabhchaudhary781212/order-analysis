@@ -110,7 +110,7 @@ const FileUpload = () => {
       );
 
       // Go to dashboard
-    navigate("/dashboard");
+   navigate("/dashboard");
     } catch (error) {
       console.error("Upload error:", error);
 

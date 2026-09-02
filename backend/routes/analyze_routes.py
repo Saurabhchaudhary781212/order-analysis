@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import xml.etree.ElementTree as ET
 import io
+from routes.analyze_routes import analyze_bp
 
 
 analyze_bp = Blueprint("analyze", __name__)
