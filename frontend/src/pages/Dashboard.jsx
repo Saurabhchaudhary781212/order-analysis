@@ -1294,7 +1294,7 @@ const doughnutData = useMemo(() => {
 
           {/* COLUMNS */}
 
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
+          {/* <div className="rounded-2xl bg-white p-6 shadow-sm">
 
             <div className="flex items-center justify-between text-sm">
 
@@ -1306,8 +1306,8 @@ const doughnutData = useMemo(() => {
 
                 <h3 className="mt-2 text-3xl font-bold text-slate-800">
 
-                  {/* {backendSummary.columns ??
-                    columns.length} */}
+                  {backendSummary.columns ??
+                    columns.length}
 
                 </h3>
 
@@ -1325,7 +1325,7 @@ const doughnutData = useMemo(() => {
 
             </div>
 
-          </div>
+          </div> */}
 
 
           {/* NUMERIC VALUES */}
