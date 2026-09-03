@@ -1,12 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+
 import {
-  Bar,
-  Line,
-  Doughnut
-} from "react-chartjs-2";
-import { downloadFinalAnalysisReport } from "../utils/reportGenerator";
-
-
+  FiDatabase,
+  FiColumns,
+  FiHash,
+  FiAlertTriangle,
+  FiRefreshCw,
+  FiUpload,
+  FiDownload,
+  FiTrendingUp,
+  FiMapPin,
+  FiShoppingBag,
+  FiActivity,
+  FiCheckCircle,
+} from "react-icons/fi";
 
 import {
   Chart as ChartJS,
@@ -17,35 +25,26 @@ import {
   BarElement,
   ArcElement,
   Tooltip,
-  Legend
+  Legend,
+  Filler,
 } from "chart.js";
 
 import {
-  FiDatabase,
-  FiColumns,
-  FiHash,
-  FiAlertTriangle,
-  FiRefreshCw,
-  FiUpload,
-  FiShoppingBag,
-  FiMapPin,
-  FiTrendingUp
-} from "react-icons/fi";
+  Line,
+  Bar,
+  Doughnut,
+} from "react-chartjs-2";
 
-import { Link } from "react-router-dom";
+import {
+  downloadFinalAnalysisReport,
+} from "../utils/reportGenerator";
 
 import "./Analytics.css";
-const chartColors = [
-  "#4F46E5",
-  "#06B6D4",
-  "#10B981",
-  "#F59E0B",
-  "#EF4444",
-  "#8B5CF6",
-  "#EC4899",
-  "#14B8A6",
-];
 
+
+// ======================================================
+// CHART.JS
+// ======================================================
 
 ChartJS.register(
   CategoryScale,
@@ -55,1305 +54,1506 @@ ChartJS.register(
   BarElement,
   ArcElement,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 );
 
 
+// ======================================================
+// HELPERS
+// ======================================================
 
-function Analytics() {
+const findColumn = (
+  columns,
+  keywords
+) => {
 
-  const [dataset, setDataset] = useState(null);
+  return columns.find(
+    (column) => {
+
+      const name =
+        String(column)
+          .toLowerCase()
+          .replace(/[\s_-]/g, "");
+
+      return keywords.some(
+        (keyword) =>
+          name.includes(
+            keyword
+          )
+      );
+
+    }
+  );
+
+};
 
 
-  /* =========================================
-     LOAD DATASET
-  ========================================= */
+const isNumericColumn = (
+  rows,
+  column
+) => {
+
+  const values =
+    rows
+      .map(
+        (row) =>
+          row[column]
+      )
+      .filter(
+        (value) =>
+          value !== null &&
+          value !== undefined &&
+          String(value).trim() !== ""
+      );
+
+
+  if (
+    values.length === 0
+  ) {
+    return false;
+  }
+
+
+  const numericValues =
+    values.filter(
+      (value) =>
+        !isNaN(
+          Number(value)
+        )
+    );
+
+
+  return (
+    numericValues.length /
+      values.length >=
+    0.7
+  );
+
+};
+
+
+// ======================================================
+// COMPONENT
+// ======================================================
+
+const Analytics = () => {
+
+  const [
+    dataset,
+    setDataset,
+  ] = useState(null);
+
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+
+  // ====================================================
+  // LOAD DATASET
+  // ====================================================
 
   const loadDataset = () => {
 
+    setLoading(true);
+
     try {
 
-      const saved =
-        sessionStorage.getItem("dataset");
+      const stored =
+        sessionStorage.getItem(
+          "dataset"
+        );
 
-      if (!saved) {
+
+      if (!stored) {
+
         setDataset(null);
+
         return;
       }
 
-      const parsed =
-        JSON.parse(saved);
 
-      console.log(
-        "Analytics dataset:",
+      const parsed =
+        JSON.parse(
+          stored
+        );
+
+
+      setDataset(
         parsed
       );
-
-      setDataset(parsed);
 
     } catch (error) {
 
       console.error(
-        "Analytics dataset error:",
+        "Dataset loading error:",
         error
       );
 
       setDataset(null);
+
+    } finally {
+
+      setLoading(false);
+
     }
+
   };
 
 
-  useEffect(() => {
+  useEffect(
+    () => {
 
-    loadDataset();
-
-    const handleStorage = () => {
       loadDataset();
-    };
 
-    window.addEventListener(
-      "storage",
-      handleStorage
-    );
-
-    return () => {
-      window.removeEventListener(
-        "storage",
-        handleStorage
-      );
-    };
-
-  }, []);
+    },
+    []
+  );
 
 
-  /* =========================================
-     DATA
-  ========================================= */
-
-  const combinedData =
-    dataset?.combined_data || {};
+  // ====================================================
+  // DATA
+  // ====================================================
 
   const rows =
-    Array.isArray(combinedData.rows)
-      ? combinedData.rows
-      : [];
+    dataset?.combined_data?.rows || [];
+
 
   const columns =
-    Array.isArray(combinedData.columns)
-      ? combinedData.columns
-      : [];
-
-  const uploadedFiles =
-    Array.isArray(dataset?.files)
-      ? dataset.files
-      : [];
+    dataset?.combined_data?.columns || [];
 
 
-  /* =========================================
-     NUMERIC COLUMNS
-  ========================================= */
-
-  const numericColumns = useMemo(() => {
-
-    if (!rows.length) return [];
-
-    return columns.filter((column) => {
-
-      const values = rows
-        .map((row) => row[column])
-        .filter(
-          (value) =>
-            value !== null &&
-            value !== undefined &&
-            value !== ""
-        );
-
-      if (!values.length) {
-        return false;
-      }
-
-      const numericValues =
-        values.filter(
-          (value) =>
-            !isNaN(Number(value))
-        );
-
-      return (
-        numericValues.length /
-          values.length >=
-        0.7
-      );
-
-    });
-
-  }, [rows, columns]);
+  const totalRows =
+    dataset?.summary?.total_rows ??
+    rows.length;
 
 
-  /* =========================================
-     CATEGORY COLUMNS
-  ========================================= */
-
-  const categoryColumns = useMemo(() => {
-
-    if (!rows.length) return [];
-
-    return columns.filter((column) => {
-
-      const values = rows
-        .map((row) => row[column])
-        .filter(
-          (value) =>
-            value !== null &&
-            value !== undefined &&
-            value !== ""
-        );
-
-      if (!values.length) {
-        return false;
-      }
-
-      const uniqueValues =
-        new Set(
-          values.map((value) =>
-            String(value)
-          )
-        );
-
-      return (
-        uniqueValues.size > 1 &&
-        uniqueValues.size <=
-          Math.min(
-            20,
-            values.length
-          )
-      );
-
-    });
-
-  }, [rows, columns]);
+  const totalColumns =
+    dataset?.summary?.total_columns ??
+    columns.length;
 
 
-  /* =========================================
-     FIND SALES COLUMN
-  ========================================= */
+  const totalFiles =
+    dataset?.summary?.total_files ??
+    dataset?.files?.length ??
+    0;
 
-  const salesColumn = useMemo(() => {
 
-    const names = [
-      "sales",
-      "sale",
-      "revenue",
-      "amount",
-      "total",
-      "price",
-      "income",
-      "profit",
-      "order_value",
-      "order value",
-      "total_amount",
-      "total amount"
-    ];
+  // ====================================================
+  // DETECT IMPORTANT COLUMNS
+  // ====================================================
 
-    return numericColumns.find(
-      (column) => {
+  const detected = useMemo(
+    () => {
 
-        const normalized =
-          column
-            .toLowerCase()
-            .replace(/[_-]/g, " ");
+      return {
 
-        return names.some(
-          (name) =>
-            normalized.includes(name)
-        );
-      }
+        revenue:
+          findColumn(
+            columns,
+            [
+              "revenue",
+              "sales",
+              "sale",
+              "amount",
+              "price",
+              "income",
+              "profit",
+              "totalamount",
+              "totalvalue",
+            ]
+          ),
+
+        quantity:
+          findColumn(
+            columns,
+            [
+              "quantity",
+              "qty",
+              "units",
+            ]
+          ),
+
+        category:
+          findColumn(
+            columns,
+            [
+              "category",
+              "productcategory",
+              "type",
+              "department",
+              "segment",
+            ]
+          ),
+
+        product:
+          findColumn(
+            columns,
+            [
+              "product",
+              "productname",
+              "item",
+              "itemname",
+            ]
+          ),
+
+        city:
+          findColumn(
+            columns,
+            [
+              "city",
+              "location",
+            ]
+          ),
+
+        date:
+          findColumn(
+            columns,
+            [
+              "date",
+              "orderdate",
+              "createdat",
+              "time",
+              "month",
+              "year",
+            ]
+          ),
+
+        customer:
+          findColumn(
+            columns,
+            [
+              "customer",
+              "customername",
+              "client",
+              "userid",
+            ]
+          ),
+
+      };
+
+    },
+    [
+      columns
+    ]
+  );
+
+
+  // ====================================================
+  // NUMERIC COLUMNS
+  // ====================================================
+
+  const numericColumns =
+    useMemo(
+      () =>
+        columns.filter(
+          (column) =>
+            isNumericColumn(
+              rows,
+              column
+            )
+        ),
+      [
+        rows,
+        columns
+      ]
     );
 
-  }, [numericColumns]);
+
+  // ====================================================
+  // MISSING VALUES
+  // ====================================================
+
+  const missingValues =
+    useMemo(
+      () => {
+
+        let count = 0;
 
 
-  /* =========================================
-     FIND QUANTITY COLUMN
-  ========================================= */
+        rows.forEach(
+          (row) => {
 
-  const quantityColumn = useMemo(() => {
+            columns.forEach(
+              (column) => {
 
-    const names = [
-      "quantity",
-      "qty",
-      "units",
-      "items",
-      "count"
-    ];
-
-    return numericColumns.find(
-      (column) => {
-
-        const normalized =
-          column
-            .toLowerCase()
-            .replace(/[_-]/g, " ");
-
-        return names.some(
-          (name) =>
-            normalized.includes(name)
-        );
-      }
-    );
-
-  }, [numericColumns]);
+                const value =
+                  row[column];
 
 
-  /* =========================================
-     FIND CATEGORY COLUMN
-  ========================================= */
+                if (
+                  value === null ||
+                  value === undefined ||
+                  String(value).trim() === ""
+                ) {
 
-  const categoryColumn = useMemo(() => {
+                  count++;
 
-    const preferred = categoryColumns.find(
-      (column) => {
+                }
 
-        const name =
-          column.toLowerCase();
+              }
+            );
 
-        return (
-          name.includes("category") ||
-          name.includes("product") ||
-          name.includes("type") ||
-          name.includes("status") ||
-          name.includes("region") ||
-          name.includes("country")
-        );
-
-      }
-    );
-
-    return (
-      preferred ||
-      categoryColumns[0] ||
-      null
-    );
-
-  }, [categoryColumns]);
-
-
-  /* =========================================
-     FIND CITY COLUMN
-  ========================================= */
-
-  const cityColumn = useMemo(() => {
-
-    return columns.find(
-      (column) =>
-        column
-          .toLowerCase()
-          .includes("city")
-    );
-
-  }, [columns]);
-
-
-  /* =========================================
-     NUMERIC VALUE COUNT
-  ========================================= */
-
-  const numericValueCount = useMemo(() => {
-
-    let count = 0;
-
-    rows.forEach((row) => {
-
-      numericColumns.forEach(
-        (column) => {
-
-          const value =
-            row[column];
-
-          if (
-            value !== null &&
-            value !== undefined &&
-            value !== "" &&
-            !isNaN(Number(value))
-          ) {
-            count++;
           }
-
-        }
-      );
-
-    });
-
-    return count;
-
-  }, [rows, numericColumns]);
+        );
 
 
-  /* =========================================
-     MISSING VALUES
-  ========================================= */
+        return count;
 
-  const missingValues = useMemo(() => {
+      },
+      [
+        rows,
+        columns
+      ]
+    );
 
-    let count = 0;
 
-    rows.forEach((row) => {
+  // ====================================================
+  // DUPLICATES
+  // ====================================================
 
-      columns.forEach((column) => {
+  const duplicateRows =
+    useMemo(
+      () => {
 
-        const value =
-          row[column];
+        const seen =
+          new Set();
+
+
+        let duplicates = 0;
+
+
+        rows.forEach(
+          (row) => {
+
+            const key =
+              JSON.stringify(
+                row
+              );
+
+
+            if (
+              seen.has(key)
+            ) {
+
+              duplicates++;
+
+            } else {
+
+              seen.add(key);
+
+            }
+
+          }
+        );
+
+
+        return duplicates;
+
+      },
+      [
+        rows
+      ]
+    );
+
+
+  // ====================================================
+  // TOTAL REVENUE
+  // ====================================================
+
+  const totalRevenue =
+    useMemo(
+      () => {
 
         if (
-          value === null ||
-          value === undefined ||
-          String(value).trim() === ""
+          !detected.revenue
         ) {
-          count++;
+
+          return null;
+
         }
 
-      });
 
-    });
-
-    return count;
-
-  }, [rows, columns]);
-
-
-  /* =========================================
-     DUPLICATES
-  ========================================= */
-
-  const duplicateRows = useMemo(() => {
-
-    const seen = new Set();
-
-    let duplicates = 0;
-
-    rows.forEach((row) => {
-
-      const key =
-        JSON.stringify(row);
-
-      if (seen.has(key)) {
-        duplicates++;
-      } else {
-        seen.add(key);
-      }
-
-    });
-
-    return duplicates;
-
-  }, [rows]);
-
-
-  /* =========================================
-     TOTAL NUMERIC SUM
-  ========================================= */
-
-  const totalNumericValue =
-    useMemo(() => {
-
-      let total = 0;
-
-      rows.forEach((row) => {
-
-        numericColumns.forEach(
-          (column) => {
+        return rows.reduce(
+          (
+            total,
+            row
+          ) => {
 
             const value =
-              Number(row[column]);
+              Number(
+                row[
+                  detected.revenue
+                ]
+              );
 
-            if (!isNaN(value)) {
-              total += value;
+
+            return (
+              total +
+              (
+                isNaN(value)
+                  ? 0
+                  : value
+              )
+            );
+
+          },
+          0
+        );
+
+      },
+      [
+        rows,
+        detected.revenue
+      ]
+    );
+
+
+  // ====================================================
+  // TOTAL QUANTITY
+  // ====================================================
+
+  const totalQuantity =
+    useMemo(
+      () => {
+
+        if (
+          !detected.quantity
+        ) {
+
+          return null;
+
+        }
+
+
+        return rows.reduce(
+          (
+            total,
+            row
+          ) => {
+
+            const value =
+              Number(
+                row[
+                  detected.quantity
+                ]
+              );
+
+
+            return (
+              total +
+              (
+                isNaN(value)
+                  ? 0
+                  : value
+              )
+            );
+
+          },
+          0
+        );
+
+      },
+      [
+        rows,
+        detected.quantity
+      ]
+    );
+
+
+  // ====================================================
+  // CATEGORY DATA
+  // ====================================================
+
+  const categoryData =
+    useMemo(
+      () => {
+
+        if (
+          !detected.category
+        ) {
+
+          return [];
+
+        }
+
+
+        const counts = {};
+
+
+        rows.forEach(
+          (row) => {
+
+            const value =
+              row[
+                detected.category
+              ];
+
+
+            if (
+              value === null ||
+              value === undefined ||
+              String(value).trim() === ""
+            ) {
+
+              return;
+
             }
+
+
+            const key =
+              String(value);
+
+
+            counts[key] =
+              (
+                counts[key] || 0
+              ) + 1;
 
           }
         );
 
-      });
 
-      return total;
+        return Object.entries(
+          counts
+        )
+        .sort(
+          (a, b) =>
+            b[1] - a[1]
+        );
 
-    }, [rows, numericColumns]);
-
-
-  /* =========================================
-     TOTAL SALES
-  ========================================= */
-
-  const totalSales =
-    useMemo(() => {
-
-      if (!salesColumn) {
-        return null;
-      }
-
-      return rows.reduce(
-        (sum, row) => {
-
-          const value =
-            Number(row[salesColumn]);
-
-          return (
-            sum +
-            (isNaN(value)
-              ? 0
-              : value)
-          );
-
-        },
-        0
-      );
-
-    }, [rows, salesColumn]);
+      },
+      [
+        rows,
+        detected.category
+      ]
+    );
 
 
-  /* =========================================
-     TOTAL QUANTITY
-  ========================================= */
+  // ====================================================
+  // PRODUCT DATA
+  // ====================================================
 
-  const totalQuantity =
-    useMemo(() => {
-
-      if (!quantityColumn) {
-        return null;
-      }
-
-      return rows.reduce(
-        (sum, row) => {
-
-          const value =
-            Number(row[quantityColumn]);
-
-          return (
-            sum +
-            (isNaN(value)
-              ? 0
-              : value)
-          );
-
-        },
-        0
-      );
-
-    }, [rows, quantityColumn]);
-
-
-  /* =========================================
-     CATEGORY DATA
-  ========================================= */
-
-  const categoryData =
-    useMemo(() => {
-
-      if (
-        !categoryColumn ||
-        !rows.length
-      ) {
-        return null;
-      }
-
-      const counts = {};
-
-      rows.forEach((row) => {
-
-        const value =
-          row[categoryColumn];
+  const productData =
+    useMemo(
+      () => {
 
         if (
-          value !== null &&
-          value !== undefined &&
-          String(value).trim() !== ""
+          !detected.product
         ) {
 
-          const key =
-            String(value);
-
-          counts[key] =
-            (counts[key] || 0) + 1;
+          return [];
 
         }
 
-      });
 
-      const sorted =
-        Object.entries(counts)
-          .sort(
-            (a, b) =>
-              b[1] - a[1]
-          )
-          .slice(0, 10);
-
-      return {
-
-        column:
-          categoryColumn,
-
-        labels:
-          sorted.map(
-            ([key]) => key
-          ),
-
-        values:
-          sorted.map(
-            ([, value]) =>
-              value
-          )
-
-      };
-
-    }, [
-      categoryColumn,
-      rows
-    ]);
+        const counts = {};
 
 
-  /* =========================================
-     CITY DATA
-  ========================================= */
+        rows.forEach(
+          (row) => {
+
+            const value =
+              row[
+                detected.product
+              ];
+
+
+            if (
+              value === null ||
+              value === undefined ||
+              String(value).trim() === ""
+            ) {
+
+              return;
+
+            }
+
+
+            const key =
+              String(value);
+
+
+            counts[key] =
+              (
+                counts[key] || 0
+              ) + 1;
+
+          }
+        );
+
+
+        return Object.entries(
+          counts
+        )
+        .sort(
+          (a, b) =>
+            b[1] - a[1]
+        )
+        .slice(
+          0,
+          10
+        );
+
+      },
+      [
+        rows,
+        detected.product
+      ]
+    );
+
+
+  // ====================================================
+  // CITY DATA
+  // ====================================================
 
   const cityData =
-    useMemo(() => {
-
-      if (
-        !cityColumn ||
-        !rows.length
-      ) {
-        return null;
-      }
-
-      const counts = {};
-
-      rows.forEach((row) => {
-
-        const value =
-          row[cityColumn];
+    useMemo(
+      () => {
 
         if (
-          value !== null &&
-          value !== undefined &&
-          String(value).trim() !== ""
+          !detected.city
         ) {
 
-          const key =
-            String(value);
-
-          counts[key] =
-            (counts[key] || 0) + 1;
+          return [];
 
         }
 
-      });
 
-      const sorted =
-        Object.entries(counts)
-          .sort(
-            (a, b) =>
-              b[1] - a[1]
-          )
-          .slice(0, 10);
-
-      return {
-
-        labels:
-          sorted.map(
-            ([key]) => key
-          ),
-
-        values:
-          sorted.map(
-            ([, value]) =>
-              value
-          )
-
-      };
-
-    }, [
-      cityColumn,
-      rows
-    ]);
+        const counts = {};
 
 
-  /* =========================================
-     CATEGORY BAR CHART
-  ========================================= */
+        rows.forEach(
+          (row) => {
 
-const categoryChart = categoryData
-  ? {
-      labels: categoryData.labels,
-
-      datasets: [
-        {
-          label: "Orders",
-
-          data: categoryData.values,
-
-          backgroundColor: chartColors,
-
-          borderRadius: 8,
-
-          borderSkipped: false,
-        },
-      ],
-    }
-  : null;
-
-  /* =========================================
-     DOUGHNUT CHART
-  ========================================= */
-
- const doughnutChart = categoryData
-  ? {
-      labels: categoryData.labels,
-
-      datasets: [
-        {
-          data: categoryData.values,
-
-          backgroundColor: chartColors,
-
-          borderColor: "#ffffff",
-
-          borderWidth: 3,
-
-          hoverOffset: 10,
-        },
-      ],
-    }
-  : null;
+            const value =
+              row[
+                detected.city
+              ];
 
 
-  /* =========================================
-     CITY CHART
-  ========================================= */
+            if (
+              value === null ||
+              value === undefined ||
+              String(value).trim() === ""
+            ) {
 
-  const cityChart =
-    cityData
-      ? {
-          labels:
-            cityData.labels,
+              return;
 
-          datasets: [
-            {
-              label:
-                "Orders",
-
-              data:
-                cityData.values,
-
-              borderWidth: 1
             }
-          ]
+
+
+            const key =
+              String(value);
+
+
+            counts[key] =
+              (
+                counts[key] || 0
+              ) + 1;
+
+          }
+        );
+
+
+        return Object.entries(
+          counts
+        )
+        .sort(
+          (a, b) =>
+            b[1] - a[1]
+        )
+        .slice(
+          0,
+          10
+        );
+
+      },
+      [
+        rows,
+        detected.city
+      ]
+    );
+
+
+  // ====================================================
+  // DATE DATA
+  // ====================================================
+
+  const dateData =
+    useMemo(
+      () => {
+
+        if (
+          !detected.date
+        ) {
+
+          return [];
+
         }
-      : null;
 
 
-  /* =========================================
-     NUMERIC TREND
-  ========================================= */
+        const counts = {};
 
-  const numericChart =
-    useMemo(() => {
 
-      if (
-        !numericColumns.length ||
-        !rows.length
-      ) {
-        return null;
-      }
+        rows.forEach(
+          (row) => {
 
-      const column =
-        salesColumn ||
-        numericColumns[0];
+            const value =
+              row[
+                detected.date
+              ];
 
-      const values =
-        rows
-          .map((row) =>
-            Number(row[column])
-          )
-          .filter(
-            (value) =>
-              !isNaN(value)
-          )
-          .slice(0, 30);
 
-          return {
-        labels: values.map(
-          (_, index) => `Row ${index + 1}`
+            if (
+              !value
+            ) {
+
+              return;
+
+            }
+
+
+            const date =
+              new Date(
+                value
+              );
+
+
+            if (
+              isNaN(
+                date.getTime()
+              )
+            ) {
+
+              return;
+
+            }
+
+
+            const key =
+              date
+                .toISOString()
+                .slice(
+                  0,
+                  10
+                );
+
+
+            counts[key] =
+              (
+                counts[key] || 0
+              ) + 1;
+
+          }
+        );
+
+
+        return Object.entries(
+          counts
+        )
+        .sort(
+          (a, b) =>
+            new Date(a[0]) -
+            new Date(b[0])
+        );
+
+      },
+      [
+        rows,
+        detected.date
+      ]
+    );
+
+
+  // ====================================================
+  // CHART DATA
+  // ====================================================
+
+  const categoryChart = {
+
+    labels:
+      categoryData
+        .slice(
+          0,
+          10
+        )
+        .map(
+          ([name]) =>
+            name
         ),
 
-        datasets: [
-          {
-            label: column,
-            data: values,
+    datasets: [
+      {
 
-            borderColor: "#4F46E5",
-            backgroundColor: "rgba(79, 70, 229, 0.12)",
+        label:
+          "Records",
 
-            fill: true,
-            tension: 0.4,
+        data:
+          categoryData
+            .slice(
+              0,
+              10
+            )
+            .map(
+              ([, value]) =>
+                value
+            ),
 
-            pointRadius: 4,
-            pointHoverRadius: 7,
+        borderRadius: 8,
 
-            borderWidth: 3,
-          },
+        backgroundColor: [
+          "#4F46E5",
+          "#06B6D4",
+          "#10B981",
+          "#F59E0B",
+          "#EF4444",
+          "#8B5CF6",
+          "#EC4899",
+          "#14B8A6",
+          "#F97316",
+          "#84CC16",
         ],
-      };
-    }, [
-      numericColumns,
-      rows,
-      salesColumn
-    ]);
+
+      },
+    ],
+
+  };
 
 
-  /* =========================================
-     NO DATA
-  ========================================= */
+  const doughnutChart = {
 
-  if (!dataset || !rows.length) {
+    labels:
+      categoryData
+        .slice(
+          0,
+          8
+        )
+        .map(
+          ([name]) =>
+            name
+        ),
+
+    datasets: [
+      {
+
+        data:
+          categoryData
+            .slice(
+              0,
+              8
+            )
+            .map(
+              ([, value]) =>
+                value
+            ),
+
+        backgroundColor: [
+          "#4F46E5",
+          "#06B6D4",
+          "#10B981",
+          "#F59E0B",
+          "#EF4444",
+          "#8B5CF6",
+          "#EC4899",
+          "#14B8A6",
+        ],
+
+        borderWidth: 2,
+
+      },
+    ],
+
+  };
+
+
+  const cityChart = {
+
+    labels:
+      cityData.map(
+        ([name]) =>
+          name
+      ),
+
+    datasets: [
+      {
+
+        label:
+          "Orders",
+
+        data:
+          cityData.map(
+            ([, value]) =>
+              value
+          ),
+
+        borderRadius: 8,
+
+        backgroundColor:
+          "#4F46E5",
+
+      },
+    ],
+
+  };
+
+
+  const trendChart = {
+
+    labels:
+      dateData.map(
+        ([date]) =>
+          date
+      ),
+
+    datasets: [
+      {
+
+        label:
+          "Records",
+
+        data:
+          dateData.map(
+            ([, value]) =>
+              value
+          ),
+
+        borderColor:
+          "#4F46E5",
+
+        backgroundColor:
+          "rgba(79,70,229,0.10)",
+
+        fill: true,
+
+        tension: 0.35,
+
+        pointRadius: 3,
+
+      },
+    ],
+
+  };
+
+
+  // ====================================================
+  // CHART OPTIONS
+  // ====================================================
+
+  const barOptions = {
+
+    responsive: true,
+
+    maintainAspectRatio: false,
+
+    plugins: {
+
+      legend: {
+        display: false,
+      },
+
+    },
+
+    scales: {
+
+      y: {
+        beginAtZero: true,
+      },
+
+    },
+
+  };
+
+
+  const lineOptions = {
+
+    responsive: true,
+
+    maintainAspectRatio: false,
+
+    plugins: {
+
+      legend: {
+        display: false,
+      },
+
+    },
+
+    scales: {
+
+      y: {
+        beginAtZero: true,
+      },
+
+    },
+
+  };
+
+
+  const doughnutOptions = {
+
+    responsive: true,
+
+    maintainAspectRatio: false,
+
+    plugins: {
+
+      legend: {
+        position: "bottom",
+      },
+
+    },
+
+  };
+
+
+  // ====================================================
+  // INSIGHTS
+  // ====================================================
+
+  const insights =
+    useMemo(
+      () => {
+
+        const result = [];
+
+
+        if (
+          categoryData.length > 0
+        ) {
+
+          const [
+            topCategory,
+            topCategoryCount
+          ] =
+            categoryData[0];
+
+
+          result.push(
+            `The most common category is ${topCategory} with ${topCategoryCount} records.`
+          );
+
+        }
+
+
+        if (
+          cityData.length > 0
+        ) {
+
+          const [
+            topCity,
+            topCityCount
+          ] =
+            cityData[0];
+
+
+          result.push(
+            `${topCity} has the highest number of records with ${topCityCount} orders.`
+          );
+
+        }
+
+
+        if (
+          totalRevenue !== null
+        ) {
+
+          const averageRevenue =
+            totalRows > 0
+              ? totalRevenue /
+                totalRows
+              : 0;
+
+
+          result.push(
+            `Total revenue is ${totalRevenue.toLocaleString()} with an average value of ${averageRevenue.toLocaleString(undefined, {
+              maximumFractionDigits: 2,
+            })} per record.`
+          );
+
+        }
+
+
+        if (
+          totalQuantity !== null
+        ) {
+
+          result.push(
+            `The dataset contains a total quantity of ${totalQuantity.toLocaleString()}.`
+          );
+
+        }
+
+
+        if (
+          missingValues === 0
+        ) {
+
+          result.push(
+            "The dataset contains no missing values."
+          );
+
+        } else {
+
+          result.push(
+            `${missingValues} missing value(s) require attention.`
+          );
+
+        }
+
+
+        if (
+          duplicateRows === 0
+        ) {
+
+          result.push(
+            "No duplicate records were detected."
+          );
+
+        } else {
+
+          result.push(
+            `${duplicateRows} duplicate record(s) were detected.`
+          );
+
+        }
+
+
+        return result;
+
+      },
+      [
+        categoryData,
+        cityData,
+        totalRevenue,
+        totalQuantity,
+        totalRows,
+        missingValues,
+        duplicateRows
+      ]
+    );
+
+
+  // ====================================================
+  // LOADING
+  // ====================================================
+
+  if (loading) {
 
     return (
+      <div className="analytics-loading">
 
-      <div className="analytics-page">
+        <FiRefreshCw
+          className="analytics-loading-icon"
+        />
 
-        <div className="analytics-empty">
+        <h2>
+          Generating analysis...
+        </h2>
 
-          <div className="analytics-empty-icon">
-            <FiDatabase />
-          </div>
-
-          <h1>
-            No Dataset Uploaded
-          </h1>
-
-          <p>
-            Upload a CSV, JSON or XML
-            file to generate your
-            analytics dashboard.
-          </p>
-
-          <Link
-            to="/upload"
-            className="analytics-primary-btn"
-          >
-            <FiUpload />
-            Upload Dataset
-          </Link>
-
-        </div>
+        <p>
+          Preparing insights from your dataset.
+        </p>
 
       </div>
-
     );
 
   }
 
 
+  // ====================================================
+  // NO DATA
+  // ====================================================
 
+  if (
+    !dataset ||
+    rows.length === 0
+  ) {
+
+    return (
+      <div className="analytics-empty">
+
+        <FiDatabase
+          size={50}
+        />
+
+        <h2>
+          No Dataset Available
+        </h2>
+
+        <p>
+          Upload a CSV, JSON or XML file
+          to generate your Power BI-style
+          analysis dashboard.
+        </p>
+
+        <Link
+          to="/upload"
+          className="analytics-primary-btn"
+        >
+          <FiUpload />
+
+          Upload Data
+        </Link>
+
+      </div>
+    );
+
+  }
+
+
+  // ====================================================
+  // MAIN DASHBOARD
+  // ====================================================
 
   return (
 
     <div className="analytics-page">
 
-    
+      {/* ================================================
+          HEADER
+      ================================================= */}
 
-     <header className="analytics-header">
+      <div className="analytics-header">
 
         <div>
 
-          <h1>
-            Analytics Dashboard
-          </h1>
+          <div className="analytics-title-row">
+
+            <FiActivity />
+
+            <h1>
+              Analytics Dashboard
+            </h1>
+
+          </div>
 
           <p>
-            Analyze your uploaded
-            dataset
+            Interactive analysis generated
+            from your uploaded dataset
           </p>
 
         </div>
+
 
         <div className="analytics-actions">
 
-  <Link
-    to="/upload"
-    className="analytics-primary-btn"
-  >
-    <FiUpload />
-    Upload New Data
-  </Link>
+          <Link
+            to="/upload"
+            className="analytics-upload-btn"
+          >
+            <FiUpload />
+
+            Upload New Data
+          </Link>
 
 
-  <button
-    className="analytics-download-btn"
-    onClick={downloadFinalAnalysisReport}
-    title="Download Final Analysis Report"
-  >
-    <FiDownload />
-    Download Report
-  </button>
+          <button
+            className="analytics-download-btn"
+            onClick={
+              downloadFinalAnalysisReport
+            }
+          >
+            <FiDownload />
+
+            Download Final Report
+          </button>
 
 
-  <button
-    className="analytics-refresh-btn"
-    onClick={loadDataset}
-    title="Refresh"
-  >
-    <FiRefreshCw />
-  </button>
+          <button
+            className="analytics-refresh-btn"
+            onClick={
+              loadDataset
+            }
+            title="Refresh analysis"
+          >
+            <FiRefreshCw />
 
-</div>
-      </header>
-
-
-      {/* DATASET */}
-
-      <section className="dataset-card">
-
-        <div>
-
-          <h2>
-            Current Dataset
-          </h2>
-
-          <p>
-            {uploadedFiles.length}
-            {" "}
-            file(s) uploaded
-          </p>
+          </button>
 
         </div>
 
-        <div className="file-list">
-
-          {uploadedFiles.map(
-            (file, index) => (
-
-              <span
-                key={index}
-                className="file-badge"
-              >
-                <FiFileIcon />
-                {file.filename ||
-                  file.name ||
-                  `File ${index + 1}`}
-              </span>
-
-            )
-          )}
-
-        </div>
-
-      </section>
+      </div>
 
 
-      {/* KPI */}
+      {/* ================================================
+          DATA INFO
+      ================================================= */}
 
-      <section className="analytics-kpi-grid">
+      <div className="analytics-data-info">
 
-        <div className="analytics-card">
+        <span>
+          <FiDatabase />
 
-          <div className="card-content">
+          {totalFiles} file(s)
+        </span>
+
+
+        <span>
+          <FiColumns />
+
+          {totalColumns} columns
+        </span>
+
+
+        <span>
+          <FiHash />
+
+          {totalRows.toLocaleString()} records
+        </span>
+
+      </div>
+
+
+      {/* ================================================
+          KPI CARDS
+      ================================================= */}
+
+      <div className="analytics-kpi-grid">
+
+
+        <div className="analytics-kpi-card">
+
+          <div className="analytics-kpi-icon blue">
+            <FiDatabase />
+          </div>
+
+          <div>
 
             <span>
               Total Records
             </span>
 
             <strong>
-              {rows.length.toLocaleString()}
+              {totalRows.toLocaleString()}
             </strong>
 
-          </div>
-
-          <div className="card-icon blue">
-            <FiDatabase />
           </div>
 
         </div>
 
 
-        <div className="analytics-card">
+        <div className="analytics-kpi-card">
 
-          <div className="card-content">
-
-            <span>
-              Columns
-            </span>
-
-            <strong>
-              {columns.length}
-            </strong>
-
-          </div>
-
-          <div className="card-icon purple">
+          <div className="analytics-kpi-icon purple">
             <FiColumns />
           </div>
 
-        </div>
-
-
-        <div className="analytics-card">
-
-          <div className="card-content">
+          <div>
 
             <span>
-              Numeric Values
+              Total Columns
             </span>
 
             <strong>
-              {numericValueCount.toLocaleString()}
+              {totalColumns}
             </strong>
 
-          </div>
-
-          <div className="card-icon green">
-            <FiHash />
           </div>
 
         </div>
 
 
-        <div className="analytics-card">
+        <div className="analytics-kpi-card">
 
-          <div className="card-content">
-
-            <span>
-              Missing Values
-            </span>
-
-            <strong>
-              {missingValues.toLocaleString()}
-            </strong>
-
-          </div>
-
-          <div className="card-icon red">
-            <FiAlertTriangle />
-          </div>
-
-        </div>
-
-      </section>
-
-
-      {/* BUSINESS METRICS */}
-
-      <section className="analytics-kpi-grid">
-
-        <div className="analytics-card">
-
-          <div className="card-content">
-
-            <span>
-              Total Sales
-            </span>
-
-            <strong>
-
-              {totalSales !== null
-                ? `₹${totalSales.toLocaleString(
-                    undefined,
-                    {
-                      maximumFractionDigits: 2
-                    }
-                  )}`
-                : "N/A"}
-
-            </strong>
-
-            <small>
-              {salesColumn ||
-                "Sales column not found"}
-            </small>
-
-          </div>
-
-          <div className="card-icon orange">
+          <div className="analytics-kpi-icon green">
             <FiTrendingUp />
           </div>
 
+          <div>
+
+            <span>
+              {detected.revenue
+                ? "Total Revenue"
+                : "Numeric Columns"}
+            </span>
+
+            <strong>
+
+              {totalRevenue !== null
+                ? totalRevenue.toLocaleString(
+                    undefined,
+                    {
+                      maximumFractionDigits: 2,
+                    }
+                  )
+                : numericColumns.length}
+
+            </strong>
+
+          </div>
+
         </div>
 
 
-        <div className="analytics-card">
+        <div className="analytics-kpi-card">
 
-          <div className="card-content">
+          <div className="analytics-kpi-icon orange">
+            <FiShoppingBag />
+          </div>
+
+          <div>
 
             <span>
-              Total Quantity
+              {detected.quantity
+                ? "Total Quantity"
+                : "Categories"}
             </span>
 
             <strong>
 
               {totalQuantity !== null
                 ? totalQuantity.toLocaleString()
-                : "N/A"}
+                : categoryData.length}
 
             </strong>
 
-            <small>
-              {quantityColumn ||
-                "Quantity column not found"}
-            </small>
-
-          </div>
-
-          <div className="card-icon green">
-            <FiShoppingBag />
           </div>
 
         </div>
 
-
-        <div className="analytics-card">
-
-          <div className="card-content">
-
-            <span>
-              Numeric Data Sum
-            </span>
-
-            <strong>
-              {totalNumericValue.toLocaleString(
-                undefined,
-                {
-                  maximumFractionDigits: 2
-                }
-              )}
-            </strong>
-
-          </div>
-
-          <div className="card-icon blue">
-            <FiHash />
-          </div>
-
-        </div>
+      </div>
 
 
-        <div className="analytics-card">
+      {/* ================================================
+          MAIN CHARTS
+      ================================================= */}
 
-          <div className="card-content">
-
-            <span>
-              Duplicate Records
-            </span>
-
-            <strong>
-              {duplicateRows}
-            </strong>
-
-          </div>
-
-          <div className="card-icon red">
-            <FiAlertTriangle />
-          </div>
-
-        </div>
-
-      </section>
+      <div className="analytics-chart-grid">
 
 
-      {/* CHARTS */}
+        {/* TREND */}
 
-      <section className="chart-grid">
+        {dateData.length > 0 && (
 
-        {/* CATEGORY */}
+          <div className="analytics-chart-card large">
 
-        {categoryChart && (
-
-          <div className="chart-card">
-
-            <div className="chart-header">
+            <div className="analytics-card-header">
 
               <div>
 
                 <h2>
-                  Category Distribution
+                  Trend Analysis
                 </h2>
 
                 <p>
-                  Records by{" "}
-                  <strong>
-                    {categoryData.column}
-                  </strong>
+                  Records over time
                 </p>
 
               </div>
 
-            </div>
-
-            <div className="chart-area">
-
-          <Bar
-  data={categoryChart}
-  options={{
-    responsive: true,
-    maintainAspectRatio: false,
-       animation: {
-      duration: 1800,
-      easing: "easeOutQuart",
-    },
-    plugins: {
-      legend: {
-        display: false,
-      },
-
-      tooltip: {
-        backgroundColor: "#0f172a",
-        titleColor: "#ffffff",
-        bodyColor: "#e2e8f0",
-        padding: 12,
-        cornerRadius: 8,
-      },
-    },
-
-    scales: {
-      x: {
-        grid: {
-          display: false,
-        },
-
-        ticks: {
-          color: "#64748b",
-        },
-      },
-
-      y: {
-        beginAtZero: true,
-
-        grid: {
-          color: "#e2e8f0",
-        },
-
-        ticks: {
-          color: "#64748b",
-        },
-      },
-    },
-  }}
-/>
-            </div>
-
-          </div>
-
-        )}
-
-
-        {/* DOUGHNUT */}
-
-        {doughnutChart && (
-
-          <div className="chart-card">
-
-            <div className="chart-header">
-
-              <div>
-
-                <h2>
-                  Data Distribution
-                </h2>
-
-                <p>
-                  Based on{" "}
-                  <strong>
-                    {categoryData.column}
-                  </strong>
-                </p>
-
-              </div>
+              <FiTrendingUp />
 
             </div>
 
-           <Doughnut
-  data={doughnutChart}
-  options={{
-    responsive: true,
 
-    maintainAspectRatio: false,
+            <div className="analytics-chart-container">
 
-    cutout: "65%",
- animation: {
-      animateRotate: true,
-      animateScale: true,
-      duration: 1800,
-      easing: "easeOutQuart",
-    },
-    plugins: {
-      legend: {
-        position: "bottom",
-
-        labels: {
-          usePointStyle: true,
-
-          padding: 18,
-
-          font: {
-            size: 12,
-          },
-        },
-      },
-
-      tooltip: {
-        backgroundColor: "#0f172a",
-
-        titleColor: "#ffffff",
-
-        bodyColor: "#e2e8f0",
-
-        padding: 12,
-
-        cornerRadius: 8,
-      },
-    },
-  }}
-/>
-
-          </div>
-
-        )}
-
-
-        {/* CITY */}
-
-        {cityChart && (
-
-          <div className="chart-card">
-
-            <div className="chart-header">
-
-              <div>
-
-                <h2>
-                  Orders by City
-                </h2>
-
-                <p>
-                  Top performing cities
-                </p>
-
-              </div>
-
-              <FiMapPin />
-
-            </div>
-
-            <div className="chart-area">
-
-              <Bar
-                data={cityChart}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false
-                    }
-                  }
-                }}
+              <Line
+                data={trendChart}
+                options={lineOptions}
               />
 
             </div>
@@ -1363,94 +1563,37 @@ const categoryChart = categoryData
         )}
 
 
-        {/* NUMERIC TREND */}
+        {/* CATEGORY */}
 
-        {numericChart && (
+        {categoryData.length > 0 && (
 
-          <div className="chart-card">
+          <div className="analytics-chart-card">
 
-            <div className="chart-header">
+            <div className="analytics-card-header">
 
               <div>
 
                 <h2>
-                  Numeric Data Trend
+                  Category Distribution
                 </h2>
 
                 <p>
-                  Using{" "}
-                  <strong>
-                    {salesColumn ||
-                      numericColumns[0]}
-                  </strong>
+                  Top categories
                 </p>
 
               </div>
 
+              <FiShoppingBag />
+
             </div>
 
-            <div className="chart-area">
 
-             <Line
-  data={numericChart}
-  options={{
-    responsive: true,
+            <div className="analytics-chart-container">
 
-    maintainAspectRatio: false,
-     animation: {
-      duration: 2000,
-      easing: "easeInOutQuart",
-    },
-
-    plugins: {
-      legend: {
-        position: "bottom",
-
-        labels: {
-          usePointStyle: true,
-
-          padding: 18,
-        },
-      },
-
-      tooltip: {
-        backgroundColor: "#0f172a",
-
-        titleColor: "#ffffff",
-
-        bodyColor: "#e2e8f0",
-
-        padding: 12,
-
-        cornerRadius: 8,
-      },
-    },
-
-    scales: {
-      x: {
-        grid: {
-          display: false,
-        },
-
-        ticks: {
-          color: "#64748b",
-        },
-      },
-
-      y: {
-        beginAtZero: true,
-
-        grid: {
-          color: "#e2e8f0",
-        },
-
-        ticks: {
-          color: "#64748b",
-        },
-      },
-    },
-  }}
-/>
+              <Bar
+                data={categoryChart}
+                options={barOptions}
+              />
 
             </div>
 
@@ -1458,127 +1601,439 @@ const categoryChart = categoryData
 
         )}
 
-      </section>
+
+        {/* DOUGHNUT */}
+
+        {categoryData.length > 0 && (
+
+          <div className="analytics-chart-card">
+
+            <div className="analytics-card-header">
+
+              <div>
+
+                <h2>
+                  Category Share
+                </h2>
+
+                <p>
+                  Distribution of records
+                </p>
+
+              </div>
+
+            </div>
 
 
-      {/* DATA PREVIEW */}
-{/* DATA QUALITY OVERVIEW */}
+            <div className="analytics-doughnut-container">
 
-<section className="analytics-data-summary">
+              <Doughnut
+                data={doughnutChart}
+                options={doughnutOptions}
+              />
 
-  <div className="summary-header">
+            </div>
 
-    <div>
-      <h2>Data Quality Overview</h2>
+          </div>
 
-      <p>
-        Quick summary of your uploaded dataset
-      </p>
-    </div>
-
-    <span className="quality-badge">
-      ✓ Dataset Analyzed
-    </span>
-
-  </div>
+        )}
 
 
-  <div className="quality-grid">
+        {/* CITY */}
 
-    {/* RECORDS */}
+        {cityData.length > 0 && (
 
-    <div className="quality-item">
+          <div className="analytics-chart-card">
 
-      <span className="quality-icon blue">
-        📄
-      </span>
+            <div className="analytics-card-header">
 
-      <div>
-        <small>Total Records</small>
+              <div>
 
-        <strong>
-          {rows.length.toLocaleString()}
-        </strong>
+                <h2>
+                  Orders by Location
+                </h2>
+
+                <p>
+                  Top cities
+                </p>
+
+              </div>
+
+              <FiMapPin />
+
+            </div>
+
+
+            <div className="analytics-chart-container">
+
+              <Bar
+                data={cityChart}
+                options={barOptions}
+              />
+
+            </div>
+
+          </div>
+
+        )}
+
+
+        {/* PRODUCTS */}
+
+        {productData.length > 0 && (
+
+          <div className="analytics-chart-card">
+
+            <div className="analytics-card-header">
+
+              <div>
+
+                <h2>
+                  Top Products
+                </h2>
+
+                <p>
+                  Most frequently appearing products
+                </p>
+
+              </div>
+
+              <FiShoppingBag />
+
+            </div>
+
+
+            <div className="analytics-ranking-list">
+
+              {productData.map(
+                (
+                  [product, count],
+                  index
+                ) => (
+
+                  <div
+                    className="analytics-ranking-item"
+                    key={product}
+                  >
+
+                    <span className="ranking-number">
+                      {index + 1}
+                    </span>
+
+                    <span className="ranking-name">
+                      {product}
+                    </span>
+
+                    <strong>
+                      {count}
+                    </strong>
+
+                  </div>
+
+                )
+              )}
+
+            </div>
+
+          </div>
+
+        )}
+
       </div>
 
-    </div>
+
+      {/* ================================================
+          BUSINESS METRICS
+      ================================================= */}
+
+      <div className="analytics-section">
+
+        <div className="analytics-section-title">
+
+          <div>
+
+            <h2>
+              Business Overview
+            </h2>
+
+            <p>
+              Automatically calculated metrics
+              from your dataset
+            </p>
+
+          </div>
+
+        </div>
 
 
-    {/* COLUMNS */}
+        <div className="analytics-business-grid">
 
-    <div className="quality-item">
 
-      <span className="quality-icon purple">
-        🔢
-      </span>
+          <div className="analytics-business-card">
 
-      <div>
-        <small>Total Columns</small>
+            <span>
+              Revenue Column
+            </span>
 
-        <strong>
-          {columns.length}
-        </strong>
+            <strong>
+              {detected.revenue || "Not detected"}
+            </strong>
+
+          </div>
+
+
+          <div className="analytics-business-card">
+
+            <span>
+              Quantity Column
+            </span>
+
+            <strong>
+              {detected.quantity || "Not detected"}
+            </strong>
+
+          </div>
+
+
+          <div className="analytics-business-card">
+
+            <span>
+              Category Column
+            </span>
+
+            <strong>
+              {detected.category || "Not detected"}
+            </strong>
+
+          </div>
+
+
+          <div className="analytics-business-card">
+
+            <span>
+              Date Column
+            </span>
+
+            <strong>
+              {detected.date || "Not detected"}
+            </strong>
+
+          </div>
+
+        </div>
+
       </div>
 
-    </div>
+
+      {/* ================================================
+          DATA QUALITY
+      ================================================= */}
+
+      <div className="analytics-section">
+
+        <div className="analytics-section-title">
+
+          <div>
+
+            <h2>
+              Data Quality
+            </h2>
+
+            <p>
+              Quality checks performed on
+              the uploaded dataset
+            </p>
+
+          </div>
+
+        </div>
 
 
-    {/* MISSING */}
+        <div className="analytics-quality-grid">
 
-    <div className="quality-item">
 
-      <span className="quality-icon orange">
-        ⚠️
-      </span>
+          <div className="analytics-quality-card">
 
-      <div>
-        <small>Missing Values</small>
+            <div className="quality-icon green">
+              <FiCheckCircle />
+            </div>
 
-        <strong>
-          {missingValues.toLocaleString()}
-        </strong>
+            <div>
+
+              <span>
+                Missing Values
+              </span>
+
+              <strong>
+                {missingValues.toLocaleString()}
+              </strong>
+
+              <small>
+                {missingValues === 0
+                  ? "Dataset is complete"
+                  : "Values require attention"}
+              </small>
+
+            </div>
+
+          </div>
+
+
+          <div className="analytics-quality-card">
+
+            <div className="quality-icon orange">
+              <FiAlertTriangle />
+            </div>
+
+            <div>
+
+              <span>
+                Duplicate Rows
+              </span>
+
+              <strong>
+                {duplicateRows.toLocaleString()}
+              </strong>
+
+              <small>
+                {duplicateRows === 0
+                  ? "No duplicates detected"
+                  : "Duplicate records found"}
+              </small>
+
+            </div>
+
+          </div>
+
+
+          <div className="analytics-quality-card">
+
+            <div className="quality-icon blue">
+              <FiHash />
+            </div>
+
+            <div>
+
+              <span>
+                Numeric Columns
+              </span>
+
+              <strong>
+                {numericColumns.length}
+              </strong>
+
+              <small>
+                Columns suitable for calculations
+              </small>
+
+            </div>
+
+          </div>
+
+        </div>
+
       </div>
 
-    </div>
+
+      {/* ================================================
+          INSIGHTS
+      ================================================= */}
+
+      <div className="analytics-insights-card">
+
+        <div className="analytics-insights-header">
+
+          <FiActivity />
+
+          <div>
+
+            <h2>
+              Key Insights
+            </h2>
+
+            <p>
+              Automatically generated from
+              your uploaded data
+            </p>
+
+          </div>
+
+        </div>
 
 
-    {/* DUPLICATES */}
+        <div className="analytics-insights-list">
 
-    <div className="quality-item">
+          {insights.map(
+            (
+              insight,
+              index
+            ) => (
 
-      <span className="quality-icon red">
-        ♻️
-      </span>
+              <div
+                className="analytics-insight"
+                key={index}
+              >
 
-      <div>
-        <small>Duplicate Rows</small>
+                <span>
+                  {index + 1}
+                </span>
 
-        <strong>
-          {duplicateRows.toLocaleString()}
-        </strong>
+                <p>
+                  {insight}
+                </p>
+
+              </div>
+
+            )
+          )}
+
+        </div>
+
       </div>
 
-    </div>
 
-  </div>
+      {/* ================================================
+          FINAL REPORT
+      ================================================= */}
 
-</section>
-      
+      <div className="analytics-report-card">
+
+        <div>
+
+          <h2>
+            Final Analysis Report
+          </h2>
+
+          <p>
+            Download a complete PDF report
+            containing the analysis, charts,
+            metrics and insights generated
+            from this dataset.
+          </p>
+
+        </div>
+
+
+        <button
+          className="analytics-report-button"
+          onClick={
+            downloadFinalAnalysisReport
+          }
+        >
+
+          <FiDownload />
+
+          Download Final Report
+
+        </button>
+
+      </div>
+
     </div>
 
   );
-}
 
-
-/* Small icon component */
-
-function FiFileIcon() {
-  return (
-    <span className="file-icon">
-      📄
-    </span>
-  );
-}
+};
 
 
 export default Analytics;
