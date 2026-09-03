@@ -11,12 +11,12 @@ import {
     LineElement,
     Tooltip,
     Legend,
+    Filler,
 } from "chart.js";
 
-
-// ======================================================
-// REGISTER CHART.JS
-// ======================================================
+// ============================================================
+// CHART.JS REGISTRATION
+// ============================================================
 
 Chart.register(
     CategoryScale,
@@ -26,1563 +26,2013 @@ Chart.register(
     PointElement,
     LineElement,
     Tooltip,
-    Legend
+    Legend,
+    Filler
 );
 
+// ============================================================
+// CONSTANTS
+// ============================================================
 
-// ======================================================
-// FIND COLUMN
-// ======================================================
+const CHART_WIDTH = 1200;
+const CHART_HEIGHT = 600;
 
-const findColumn = (columns, keywords) => {
-    return columns.find((column) => {
-        const name = String(column).toLowerCase();
+const COLORS = [
+    "#4f46e5",
+    "#7c3aed",
+    "#2563eb",
+    "#0891b2",
+    "#059669",
+    "#65a30d",
+    "#ca8a04",
+    "#ea580c",
+    "#dc2626",
+    "#db2777",
+];
 
-        return keywords.some((keyword) =>
-            name.includes(keyword)
-        );
+const LIGHT_BACKGROUND = "#f8fafc";
+const DARK_TEXT = "#111827";
+const MUTED_TEXT = "#6b7280";
+const BORDER_COLOR = "#e5e7eb";
+
+// ============================================================
+// GENERAL HELPERS
+// ============================================================
+
+const safeString = (value) => {
+    if (value === null || value === undefined) {
+        return "";
+    }
+
+    return String(value).trim();
+};
+
+const toNumber = (value) => {
+    if (value === null || value === undefined || value === "") {
+        return null;
+    }
+
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : null;
+    }
+
+    const cleaned = String(value)
+        .replace(/[$₹€£,\s]/g, "")
+        .replace(/%/g, "");
+
+    if (cleaned === "") {
+        return null;
+    }
+
+    const number = Number(cleaned);
+
+    return Number.isFinite(number) ? number : null;
+};
+
+const formatNumber = (value, decimals = 2) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return "0";
+    }
+
+    return Number(value).toLocaleString("en-IN", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
     });
 };
 
+const formatInteger = (value) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return "0";
+    }
 
-// ======================================================
-// CREATE CHART IMAGE
-// ======================================================
+    return Number(value).toLocaleString("en-IN", {
+        maximumFractionDigits: 0,
+    });
+};
+
+const truncateText = (value, maxLength = 35) => {
+    const text = safeString(value);
+
+    if (text.length <= maxLength) {
+        return text;
+    }
+
+    return `${text.substring(0, maxLength - 3)}...`;
+};
+
+// ============================================================
+// COLUMN DETECTION
+// ============================================================
+
+const findColumn = (columns, keywords) => {
+    if (!Array.isArray(columns)) {
+        return null;
+    }
+
+    const normalizedColumns = columns.map((column) => ({
+        original: column,
+        normalized: safeString(column).toLowerCase().replace(/[_\-\s]/g, ""),
+    }));
+
+    for (const keyword of keywords) {
+        const normalizedKeyword = keyword
+            .toLowerCase()
+            .replace(/[_\-\s]/g, "");
+
+        const exact = normalizedColumns.find(
+            (column) => column.normalized === normalizedKeyword
+        );
+
+        if (exact) {
+            return exact.original;
+        }
+    }
+
+    for (const keyword of keywords) {
+        const normalizedKeyword = keyword
+            .toLowerCase()
+            .replace(/[_\-\s]/g, "");
+
+        const partial = normalizedColumns.find((column) =>
+            column.normalized.includes(normalizedKeyword)
+        );
+
+        if (partial) {
+            return partial.original;
+        }
+    }
+
+    return null;
+};
+
+const isNumericColumn = (rows, column) => {
+    if (!Array.isArray(rows) || !column || rows.length === 0) {
+        return false;
+    }
+
+    const values = rows
+        .map((row) => row ? .[column])
+        .filter(
+            (value) =>
+            value !== null &&
+            value !== undefined &&
+            safeString(value) !== ""
+        );
+
+    if (values.length === 0) {
+        return false;
+    }
+
+    const numericValues = values.filter(
+        (value) => toNumber(value) !== null
+    );
+
+    return numericValues.length / values.length >= 0.7;
+};
+
+const getNumericColumns = (rows, columns) => {
+    if (!Array.isArray(columns)) {
+        return [];
+    }
+
+    return columns.filter((column) => isNumericColumn(rows, column));
+};
+
+// ============================================================
+// DATA GROUPING
+// ============================================================
+
+const groupByCount = (rows, column) => {
+    const map = new Map();
+
+    if (!Array.isArray(rows) || !column) {
+        return [];
+    }
+
+    rows.forEach((row) => {
+        const value = safeString(row ? .[column]) || "Unknown";
+
+        map.set(value, (map.get(value) || 0) + 1);
+    });
+
+    return Array.from(map.entries())
+        .map(([label, value]) => ({
+            label,
+            value,
+        }))
+        .sort((a, b) => b.value - a.value);
+};
+
+const groupBySum = (rows, groupColumn, valueColumn) => {
+    const map = new Map();
+
+    if (!Array.isArray(rows) || !groupColumn || !valueColumn) {
+        return [];
+    }
+
+    rows.forEach((row) => {
+        const group = safeString(row ? .[groupColumn]) || "Unknown";
+        const value = toNumber(row ? .[valueColumn]);
+
+        if (value === null) {
+            return;
+        }
+
+        map.set(group, (map.get(group) || 0) + value);
+    });
+
+    return Array.from(map.entries())
+        .map(([label, value]) => ({
+            label,
+            value,
+        }))
+        .sort((a, b) => b.value - a.value);
+};
+
+// ============================================================
+// DATE HELPERS
+// ============================================================
+
+const parseDate = (value) => {
+    if (!value) {
+        return null;
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    return date;
+};
+
+const formatDateLabel = (date) => {
+    return date.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    });
+};
+
+const getDateColumn = (columns) => {
+    return findColumn(columns, [
+        "date",
+        "orderdate",
+        "order_date",
+        "createdat",
+        "created_at",
+        "datetime",
+        "timestamp",
+        "time",
+        "month",
+        "year",
+    ]);
+};
+
+const getDateTrend = (rows, dateColumn, valueColumn = null) => {
+    if (!Array.isArray(rows) || !dateColumn) {
+        return [];
+    }
+
+    const map = new Map();
+
+    rows.forEach((row) => {
+        const date = parseDate(row ? .[dateColumn]);
+
+        if (!date) {
+            return;
+        }
+
+        const timestamp = new Date(
+            date.getFullYear(),
+            date.getMonth(),
+            date.getDate()
+        ).getTime();
+
+        const existing = map.get(timestamp) || {
+            date,
+            count: 0,
+            value: 0,
+        };
+
+        existing.count += 1;
+
+        if (valueColumn) {
+            const value = toNumber(row ? .[valueColumn]);
+
+            if (value !== null) {
+                existing.value += value;
+            }
+        }
+
+        map.set(timestamp, existing);
+    });
+
+    return Array.from(map.values()).sort(
+        (a, b) => a.date.getTime() - b.date.getTime()
+    );
+};
+
+// ============================================================
+// CHART IMAGE GENERATOR
+// ============================================================
 
 const createChartImage = ({
     type,
     labels,
     data,
     label,
+    title,
+    colors = COLORS,
+    isCurrency = false,
 }) => {
+    return new Promise((resolve, reject) => {
+        try {
+            const canvas = document.createElement("canvas");
 
-    return new Promise((resolve) => {
+            canvas.width = CHART_WIDTH;
+            canvas.height = CHART_HEIGHT;
 
-        const canvas =
-            document.createElement("canvas");
+            canvas.style.position = "fixed";
+            canvas.style.left = "-10000px";
+            canvas.style.top = "0";
+            canvas.style.width = `${CHART_WIDTH}px`;
+            canvas.style.height = `${CHART_HEIGHT}px`;
 
-        canvas.width = 1000;
-        canvas.height = 500;
+            document.body.appendChild(canvas);
 
-        canvas.style.position = "fixed";
-        canvas.style.left = "-10000px";
-        canvas.style.top = "-10000px";
+            const ctx = canvas.getContext("2d");
 
-        document.body.appendChild(canvas);
+            if (!ctx) {
+                canvas.remove();
+                reject(new Error("Unable to create chart canvas."));
+                return;
+            }
 
+            const isDoughnut = type === "doughnut";
+            const isLine = type === "line";
+            const isBar = type === "bar";
 
-        const chart = new Chart(
-            canvas.getContext("2d"), {
+            const dataset = {
+                label: label || "",
+                data,
+                borderWidth: isDoughnut ? 1 : 2,
+                borderColor: isDoughnut ?
+                    "#ffffff" :
+                    colors[0] || "#4f46e5",
+                backgroundColor: isDoughnut ?
+                    colors :
+                    isLine ?
+                    "rgba(79, 70, 229, 0.16)" :
+                    "rgba(79, 70, 229, 0.75)",
+                fill: isLine,
+                tension: 0.35,
+                pointRadius: isLine ? 4 : 0,
+                pointHoverRadius: isLine ? 6 : 0,
+                borderRadius: isBar ? 6 : 0,
+            };
+
+            const chart = new Chart(ctx, {
                 type,
-
                 data: {
                     labels,
-
-                    datasets: [{
-                        label,
-
-                        data,
-
-                        borderWidth: 2,
-
-                        tension: 0.3,
-                    }, ],
+                    datasets: [dataset],
                 },
-
                 options: {
                     responsive: false,
-
                     animation: false,
+                    devicePixelRatio: 2,
+                    maintainAspectRatio: false,
 
                     plugins: {
+                        title: {
+                            display: Boolean(title),
+                            text: title || "",
+                            color: DARK_TEXT,
+                            font: {
+                                size: 22,
+                                weight: "bold",
+                            },
+                            padding: {
+                                bottom: 20,
+                            },
+                        },
+
                         legend: {
-                            display: true,
+                            display: isDoughnut,
                             position: "bottom",
+                            labels: {
+                                color: DARK_TEXT,
+                                padding: 18,
+                                font: {
+                                    size: 13,
+                                },
+                            },
+                        },
+
+                        tooltip: {
+                            enabled: false,
                         },
                     },
 
-                    scales: type === "doughnut" ?
+                    scales: isDoughnut ?
                         {} :
                         {
                             x: {
+                                grid: {
+                                    display: false,
+                                },
                                 ticks: {
-                                    autoSkip: false,
+                                    color: MUTED_TEXT,
+                                    maxRotation: 45,
+                                    minRotation: 0,
+                                    font: {
+                                        size: 12,
+                                    },
                                 },
                             },
 
                             y: {
                                 beginAtZero: true,
+                                grid: {
+                                    color: "#e5e7eb",
+                                },
+                                ticks: {
+                                    color: MUTED_TEXT,
+                                    font: {
+                                        size: 12,
+                                    },
+                                    callback: (value) => {
+                                        if (isCurrency) {
+                                            return `₹${formatInteger(value)}`;
+                                        }
+
+                                        return formatInteger(value);
+                                    },
+                                },
                             },
                         },
                 },
-            }
-        );
+            });
 
+            requestAnimationFrame(() => {
+                try {
+                    const image = canvas.toDataURL("image/png", 1.0);
 
-        // Give Chart.js a moment to render
-        setTimeout(() => {
+                    chart.destroy();
+                    canvas.remove();
 
-            const image =
-                canvas.toDataURL(
-                    "image/png",
-                    1
-                );
-
-
-            chart.destroy();
-
-            document.body.removeChild(
-                canvas
-            );
-
-
-            resolve(image);
-
-        }, 100);
-
+                    resolve(image);
+                } catch (error) {
+                    chart.destroy();
+                    canvas.remove();
+                    reject(error);
+                }
+            });
+        } catch (error) {
+            reject(error);
+        }
     });
 };
 
+// ============================================================
+// PDF HELPERS
+// ============================================================
 
-// ======================================================
-// DOWNLOAD FINAL REPORT
-// ======================================================
+const addPageHeader = (doc, title) => {
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, 210, 18, "F");
 
-export const downloadFinalAnalysisReport =
-    async() => {
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text(title, 14, 11);
 
-        // ==================================================
-        // GET DATA FROM SESSION STORAGE
-        // ==================================================
+    doc.setTextColor(DARK_TEXT);
+};
 
-        const savedDataset =
-            sessionStorage.getItem(
-                "dataset"
-            );
+const addSectionTitle = (doc, title, y) => {
+    doc.setFillColor(79, 70, 229);
+    doc.roundedRect(14, y, 182, 9, 2, 2, "F");
 
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
 
-        if (!savedDataset) {
+    doc.text(title, 19, y + 6);
 
+    doc.setTextColor(DARK_TEXT);
+
+    return y + 15;
+};
+
+const addKpiCard = (doc, x, y, width, title, value) => {
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(229, 231, 235);
+
+    doc.roundedRect(x, y, width, 25, 3, 3, "FD");
+
+    doc.setTextColor(MUTED_TEXT);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+
+    doc.text(title, x + 5, y + 8);
+
+    doc.setTextColor(DARK_TEXT);
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+
+    doc.text(
+        truncateText(String(value), 22),
+        x + 5,
+        y + 18
+    );
+};
+
+const addChartPage = async(
+    doc, {
+        title,
+        type,
+        labels,
+        data,
+        label,
+        colors,
+        isCurrency,
+    }
+) => {
+    doc.addPage();
+
+    addPageHeader(doc, "Order Analytics Report");
+
+    doc.setTextColor(DARK_TEXT);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+
+    doc.text(title, 14, 32);
+
+    try {
+        const image = await createChartImage({
+            type,
+            labels,
+            data,
+            label,
+            title,
+            colors,
+            isCurrency,
+        });
+
+        doc.addImage(
+            image,
+            "PNG",
+            14,
+            42,
+            182,
+            91
+        );
+    } catch (error) {
+        console.error("Chart generation failed:", error);
+
+        doc.setTextColor(220, 38, 38);
+        doc.setFontSize(10);
+
+        doc.text(
+            "Unable to generate this chart.",
+            14,
+            50
+        );
+    }
+};
+
+// ============================================================
+// MAIN REPORT GENERATOR
+// ============================================================
+
+export const downloadFinalAnalysisReport = async() => {
+    try {
+        // --------------------------------------------------------
+        // LOAD DATA
+        // --------------------------------------------------------
+
+        const storedDataset = sessionStorage.getItem("dataset");
+
+        if (!storedDataset) {
             alert(
-                "No analysis data found. Please upload and analyze a file first."
+                "No analysis data found. Please upload and analyze your dataset first."
             );
-
             return;
-
         }
-
 
         let dataset;
 
-
         try {
-
-            dataset =
-                JSON.parse(
-                    savedDataset
-                );
-
+            dataset = JSON.parse(storedDataset);
         } catch (error) {
+            console.error("Dataset JSON parsing failed:", error);
 
-            console.error(
-                "Dataset parsing error:",
-                error
-            );
-
-            alert(
-                "Unable to read analysis data."
-            );
-
+            alert("Unable to read the analysis data.");
             return;
-
         }
 
+        const combinedData = dataset ? .combined_data || {};
 
-        // ==================================================
-        // GET COMBINED DATA
-        // ==================================================
+        const rows = Array.isArray(combinedData ? .rows) ?
+            combinedData.rows :
+            [];
 
-        const combinedData =
-            dataset ? .combined_data || {};
+        const columns = Array.isArray(combinedData ? .columns) ?
+            combinedData.columns :
+            [];
 
+        const summary = dataset ? .summary || {};
 
-        const rows =
-            combinedData.rows || [];
-
-
-        const columns =
-            combinedData.columns || [];
-
-
-        if (
-            rows.length === 0 ||
-            columns.length === 0
-        ) {
-
-            alert(
-                "No analyzed data is available."
-            );
-
-            return;
-
-        }
-
-
-        // ==================================================
-        // SUMMARY
-        // ==================================================
-
-        const summary =
-            dataset ? .summary || {};
-
+        // --------------------------------------------------------
+        // BASIC DATA INFORMATION
+        // --------------------------------------------------------
 
         const totalRows =
-            summary.total_rows ? ?
+            summary ? .total_rows ? ?
             rows.length;
 
-
         const totalColumns =
-            summary.total_columns ? ?
+            summary ? .total_columns ? ?
             columns.length;
 
-
         const totalFiles =
-            summary.total_files ? ?
+            summary ? .total_files ? ?
             dataset ? .files ? .length ? ?
             0;
 
+        // --------------------------------------------------------
+        // DETECT IMPORTANT COLUMNS
+        // --------------------------------------------------------
 
-        // ==================================================
-        // DETECT COLUMNS
-        // ==================================================
+        const salesColumn = findColumn(columns, [
+            "revenue",
+            "sales",
+            "sale",
+            "amount",
+            "total",
+            "totalamount",
+            "total_amount",
+            "price",
+            "value",
+            "orderamount",
+            "order_amount",
+        ]);
 
-        const salesColumn =
-            findColumn(
-                columns, [
-                    "sales",
-                    "sale",
-                    "revenue",
-                    "amount",
-                    "price",
-                    "income",
-                    "total",
-                    "value",
-                ]
-            );
+        const quantityColumn = findColumn(columns, [
+            "quantity",
+            "qty",
+            "units",
+            "items",
+            "count",
+        ]);
 
+        const categoryColumn = findColumn(columns, [
+            "category",
+            "categories",
+            "type",
+            "segment",
+            "department",
+        ]);
 
-        const quantityColumn =
-            findColumn(
-                columns, [
-                    "quantity",
-                    "qty",
-                    "units",
-                ]
-            );
+        const productColumn = findColumn(columns, [
+            "product",
+            "productname",
+            "product_name",
+            "item",
+            "itemname",
+            "item_name",
+        ]);
 
+        const cityColumn = findColumn(columns, [
+            "city",
+            "location",
+            "region",
+            "state",
+            "country",
+        ]);
 
-        const categoryColumn =
-            findColumn(
-                columns, [
-                    "category",
-                    "product",
-                    "type",
-                    "item",
-                    "department",
-                ]
-            );
+        const customerColumn = findColumn(columns, [
+            "customer",
+            "customername",
+            "customer_name",
+            "client",
+            "buyer",
+        ]);
 
+        const dateColumn = getDateColumn(columns);
 
-        const dateColumn =
-            findColumn(
-                columns, [
-                    "date",
-                    "time",
-                    "month",
-                    "year",
-                    "created",
-                    "order_date",
-                ]
-            );
-
-
-        // ==================================================
+        // --------------------------------------------------------
         // NUMERIC COLUMNS
-        // ==================================================
+        // --------------------------------------------------------
 
-        const numericColumns =
-            columns.filter(
-                (column) => {
+        const numericColumns = getNumericColumns(
+            rows,
+            columns
+        );
 
-                    const values =
-                        rows
-                        .map(
-                            (row) =>
-                            row[column]
-                        )
-                        .filter(
-                            (value) =>
-                            value !== null &&
-                            value !== undefined &&
-                            value !== ""
-                        );
-
-
-                    if (
-                        values.length === 0
-                    ) {
-                        return false;
-                    }
-
-
-                    return values.every(
-                        (value) =>
-                        !isNaN(
-                            Number(value)
-                        )
-                    );
-
-                }
-            );
-
-
-        // ==================================================
-        // MISSING VALUES
-        // ==================================================
+        // --------------------------------------------------------
+        // DATA QUALITY
+        // --------------------------------------------------------
 
         let missingValues = 0;
 
+        rows.forEach((row) => {
+            columns.forEach((column) => {
+                const value = row ? .[column];
 
-        rows.forEach(
-            (row) => {
+                if (
+                    value === null ||
+                    value === undefined ||
+                    safeString(value) === ""
+                ) {
+                    missingValues += 1;
+                }
+            });
+        });
 
-                columns.forEach(
-                    (column) => {
+        const rowKeys = new Set();
 
-                        const value =
-                            row[column];
+        let duplicateRows = 0;
 
+        rows.forEach((row) => {
+            const key = columns
+                .map((column) => safeString(row ? .[column]))
+                .join("||");
 
-                        if (
-                            value === null ||
-                            value === undefined ||
-                            value === ""
-                        ) {
-
-                            missingValues++;
-
-                        }
-
-                    }
-                );
-
+            if (rowKeys.has(key)) {
+                duplicateRows += 1;
+            } else {
+                rowKeys.add(key);
             }
-        );
+        });
 
+        const totalCells = totalRows * totalColumns;
 
-        // ==================================================
-        // DUPLICATE ROWS
-        // ==================================================
+        const missingPercentage =
+            totalCells > 0 ?
+            (missingValues / totalCells) * 100 :
+            0;
 
-        const uniqueRows =
-            new Set(
-                rows.map(
-                    (row) =>
-                    JSON.stringify(row)
-                )
-            );
-
-
-        const duplicateRows =
-            rows.length -
-            uniqueRows.size;
-
-
-        // ==================================================
-        // SALES
-        // ==================================================
+        // --------------------------------------------------------
+        // BUSINESS METRICS
+        // --------------------------------------------------------
 
         let totalSales = 0;
-
-
-        if (salesColumn) {
-
-            totalSales =
-                rows.reduce(
-                    (
-                        total,
-                        row
-                    ) => {
-
-                        const value =
-                            Number(
-                                row[
-                                    salesColumn
-                                ]
-                            );
-
-
-                        return (
-                            total +
-                            (
-                                isNaN(value) ?
-                                0 :
-                                value
-                            )
-                        );
-
-                    },
-                    0
-                );
-
-        }
-
-
-        // ==================================================
-        // QUANTITY
-        // ==================================================
-
         let totalQuantity = 0;
 
+        if (salesColumn) {
+            rows.forEach((row) => {
+                const value = toNumber(row ? .[salesColumn]);
+
+                if (value !== null) {
+                    totalSales += value;
+                }
+            });
+        }
 
         if (quantityColumn) {
+            rows.forEach((row) => {
+                const value = toNumber(row ? .[quantityColumn]);
 
-            totalQuantity =
-                rows.reduce(
-                    (
-                        total,
-                        row
-                    ) => {
-
-                        const value =
-                            Number(
-                                row[
-                                    quantityColumn
-                                ]
-                            );
-
-
-                        return (
-                            total +
-                            (
-                                isNaN(value) ?
-                                0 :
-                                value
-                            )
-                        );
-
-                    },
-                    0
-                );
-
+                if (value !== null) {
+                    totalQuantity += value;
+                }
+            });
         }
 
+        const averageOrderValue =
+            totalRows > 0 && salesColumn ?
+            totalSales / totalRows :
+            0;
 
-        // ==================================================
+        // --------------------------------------------------------
         // CATEGORY DATA
-        // ==================================================
+        // --------------------------------------------------------
 
-        const categoryCounts = {};
+        const categoryCounts = categoryColumn ?
+            groupByCount(rows, categoryColumn) :
+            [];
 
+        const categorySales =
+            categoryColumn && salesColumn ?
+            groupBySum(
+                rows,
+                categoryColumn,
+                salesColumn
+            ) :
+            [];
 
-        if (categoryColumn) {
+        // --------------------------------------------------------
+        // PRODUCT DATA
+        // --------------------------------------------------------
 
-            rows.forEach(
-                (row) => {
+        const productCounts = productColumn ?
+            groupByCount(rows, productColumn) :
+            [];
 
-                    const category =
-                        row[
-                            categoryColumn
-                        ];
+        const productSales =
+            productColumn && salesColumn ?
+            groupBySum(
+                rows,
+                productColumn,
+                salesColumn
+            ) :
+            [];
 
+        // --------------------------------------------------------
+        // CITY DATA
+        // --------------------------------------------------------
 
-                    if (
-                        category !== null &&
-                        category !== undefined &&
-                        category !== ""
-                    ) {
+        const cityCounts = cityColumn ?
+            groupByCount(rows, cityColumn) :
+            [];
 
-                        const key =
-                            String(
-                                category
-                            );
+        const citySales =
+            cityColumn && salesColumn ?
+            groupBySum(
+                rows,
+                cityColumn,
+                salesColumn
+            ) :
+            [];
 
-
-                        categoryCounts[key] =
-                            (
-                                categoryCounts[key] ||
-                                0
-                            ) + 1;
-
-                    }
-
-                }
-            );
-
-        }
-
-
-        const sortedCategories =
-            Object.entries(
-                categoryCounts
-            )
-            .sort(
-                (a, b) =>
-                b[1] - a[1]
-            );
-
-
-        // ==================================================
+        // --------------------------------------------------------
         // DATE DATA
-        // ==================================================
+        // --------------------------------------------------------
 
-        const dateCounts = {};
+        const dateTrend = getDateTrend(
+            rows,
+            dateColumn,
+            salesColumn
+        );
 
-
-        if (dateColumn) {
-
-            rows.forEach(
-                (row) => {
-
-                    const value =
-                        row[
-                            dateColumn
-                        ];
-
-
-                    if (
-                        value === null ||
-                        value === undefined ||
-                        value === ""
-                    ) {
-
-                        return;
-
-                    }
-
-
-                    const date =
-                        new Date(value);
-
-
-                    if (!isNaN(
-                            date.getTime()
-                        )) {
-
-                        const label =
-                            date
-                            .toISOString()
-                            .slice(
-                                0,
-                                10
-                            );
-
-
-                        dateCounts[label] =
-                            (
-                                dateCounts[label] ||
-                                0
-                            ) + 1;
-
-                    }
-
-                }
-            );
-
-        }
-
-
-        const sortedDates =
-            Object.entries(
-                dateCounts
-            )
-            .sort(
-                (a, b) =>
-                new Date(a[0]) -
-                new Date(b[0])
-            );
-
-
-        // ==================================================
+        // --------------------------------------------------------
         // CREATE PDF
-        // ==================================================
+        // --------------------------------------------------------
 
-        const doc =
-            new jsPDF(
-                "p",
-                "mm",
-                "a4"
-            );
+        const doc = new jsPDF({
+            orientation: "portrait",
+            unit: "mm",
+            format: "a4",
+        });
 
+        // ========================================================
+        // PAGE 1 — COVER / OVERVIEW
+        // ========================================================
 
-        // ==================================================
-        // TITLE
-        // ==================================================
+        doc.setFillColor(79, 70, 229);
+        doc.rect(0, 0, 210, 55, "F");
 
-        doc.setFontSize(
-            22
-        );
-
-        doc.setFont(
-            "helvetica",
-            "bold"
-        );
-
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(25);
 
         doc.text(
-            "Order Analytics",
+            "Order Analytics Report",
             14,
-            20
+            25
         );
 
-
-        doc.setFontSize(
-            16
-        );
-
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
 
         doc.text(
-            "Final Analysis Report",
-            14,
-            29
-        );
-
-
-        doc.setFontSize(
-            9
-        );
-
-        doc.setFont(
-            "helvetica",
-            "normal"
-        );
-
-
-        doc.text(
-            `Generated: ${new Date().toLocaleString()}`,
+            "Automated dataset analysis and business insights",
             14,
             36
         );
 
-
-        // ==================================================
-        // ANALYSIS SUMMARY
-        // ==================================================
-
-        doc.setFontSize(
-            16
-        );
-
-        doc.setFont(
-            "helvetica",
-            "bold"
-        );
-
-
         doc.text(
-            "Analysis Summary",
+            `Generated on ${new Date().toLocaleString(
+                "en-IN"
+            )}`,
             14,
-            48
+            44
         );
 
+        doc.setTextColor(DARK_TEXT);
 
-        autoTable(
-            doc, {
+        let y = 68;
 
-                startY: 54,
-
-                head: [
-                    [
-                        "Metric",
-                        "Value",
-                    ],
-                ],
-
-                body: [
-
-                    [
-                        "Total Files",
-                        totalFiles,
-                    ],
-
-                    [
-                        "Total Rows",
-                        totalRows,
-                    ],
-
-                    [
-                        "Total Columns",
-                        totalColumns,
-                    ],
-
-                    [
-                        "Numeric Columns",
-                        numericColumns.length,
-                    ],
-
-                    [
-                        "Missing Values",
-                        missingValues,
-                    ],
-
-                    [
-                        "Duplicate Rows",
-                        duplicateRows,
-                    ],
-
-                ],
-
-                theme: "grid",
-
-            }
+        y = addSectionTitle(
+            doc,
+            "Executive Overview",
+            y
         );
 
+        // KPI ROW 1
 
-        // ==================================================
-        // BUSINESS METRICS
-        // ==================================================
-
-        let businessY =
-            doc.lastAutoTable.finalY +
-            12;
-
-
-        doc.setFontSize(
-            16
-        );
-
-        doc.setFont(
-            "helvetica",
-            "bold"
-        );
-
-
-        doc.text(
-            "Business Metrics",
+        addKpiCard(
+            doc,
             14,
-            businessY
+            y,
+            56,
+            "Total records",
+            formatInteger(totalRows)
         );
 
+        addKpiCard(
+            doc,
+            77,
+            y,
+            56,
+            "Columns",
+            formatInteger(totalColumns)
+        );
 
-        const businessRows = [];
+        addKpiCard(
+            doc,
+            140,
+            y,
+            56,
+            "Files analyzed",
+            formatInteger(totalFiles)
+        );
 
+        y += 34;
 
-        if (salesColumn) {
+        // KPI ROW 2
 
-            businessRows.push([
-                "Sales / Revenue Column",
-                salesColumn,
-            ]);
+        addKpiCard(
+            doc,
+            14,
+            y,
+            56,
+            salesColumn ?
+            "Total revenue" :
+            "Missing values",
+            salesColumn ?
+            `₹${formatNumber(totalSales)}` :
+            formatInteger(missingValues)
+        );
 
+        addKpiCard(
+            doc,
+            77,
+            y,
+            56,
+            quantityColumn ?
+            "Total quantity" :
+            "Duplicate rows",
+            quantityColumn ?
+            formatNumber(totalQuantity) :
+            formatInteger(duplicateRows)
+        );
 
-            businessRows.push([
-                "Total Sales / Revenue",
-                totalSales.toLocaleString(
-                    undefined, {
-                        maximumFractionDigits: 2,
-                    }
+        addKpiCard(
+            doc,
+            140,
+            y,
+            56,
+            salesColumn ?
+            "Average order value" :
+            "Missing %",
+            salesColumn ?
+            `₹${formatNumber(
+                      averageOrderValue
+                  )}` :
+            `${missingPercentage.toFixed(2)}%`
+        );
+
+        y += 39;
+
+        y = addSectionTitle(
+            doc,
+            "Detected Dataset Structure",
+            y
+        );
+
+        const structureRows = [
+            [
+                "Revenue / sales column",
+                salesColumn || "Not detected",
+            ],
+            [
+                "Quantity column",
+                quantityColumn || "Not detected",
+            ],
+            [
+                "Category column",
+                categoryColumn || "Not detected",
+            ],
+            [
+                "Product column",
+                productColumn || "Not detected",
+            ],
+            [
+                "Location column",
+                cityColumn || "Not detected",
+            ],
+            [
+                "Customer column",
+                customerColumn || "Not detected",
+            ],
+            [
+                "Date column",
+                dateColumn || "Not detected",
+            ],
+        ];
+
+        autoTable(doc, {
+            startY: y,
+            head: [
+                ["Field", "Detected column"]
+            ],
+            body: structureRows,
+            theme: "grid",
+
+            headStyles: {
+                fillColor: [79, 70, 229],
+                textColor: 255,
+                fontStyle: "bold",
+            },
+
+            bodyStyles: {
+                fontSize: 8,
+            },
+
+            alternateRowStyles: {
+                fillColor: [248, 250, 252],
+            },
+
+            margin: {
+                left: 14,
+                right: 14,
+            },
+        });
+
+        // ========================================================
+        // PAGE 2 — DATA QUALITY
+        // ========================================================
+
+        doc.addPage();
+
+        addPageHeader(
+            doc,
+            "Order Analytics Report"
+        );
+
+        y = 30;
+
+        y = addSectionTitle(
+            doc,
+            "Data Quality Analysis",
+            y
+        );
+
+        const qualityRows = [
+            [
+                "Total rows",
+                formatInteger(totalRows),
+            ],
+            [
+                "Total columns",
+                formatInteger(totalColumns),
+            ],
+            [
+                "Total cells",
+                formatInteger(totalCells),
+            ],
+            [
+                "Missing values",
+                formatInteger(missingValues),
+            ],
+            [
+                "Missing percentage",
+                `${missingPercentage.toFixed(2)}%`,
+            ],
+            [
+                "Duplicate rows",
+                formatInteger(duplicateRows),
+            ],
+            [
+                "Numeric columns",
+                formatInteger(
+                    numericColumns.length
                 ),
-            ]);
-
-        }
-
-
-        if (quantityColumn) {
-
-            businessRows.push([
-                "Quantity Column",
-                quantityColumn,
-            ]);
-
-
-            businessRows.push([
-                "Total Quantity",
-                totalQuantity.toLocaleString(),
-            ]);
-
-        }
-
-
-        if (categoryColumn) {
-
-            businessRows.push([
-                "Category Column",
-                categoryColumn,
-            ]);
-
-
-            businessRows.push([
-                "Unique Categories",
-                Object.keys(
-                    categoryCounts
-                ).length,
-            ]);
-
-        }
-
-
-        if (dateColumn) {
-
-            businessRows.push([
-                "Date Column",
-                dateColumn,
-            ]);
-
-        }
-
-
-        if (
-            businessRows.length > 0
-        ) {
-
-            autoTable(
-                doc, {
-
-                    startY: businessY + 6,
-
-                    head: [
-                        [
-                            "Metric",
-                            "Value",
-                        ],
-                    ],
-
-                    body: businessRows,
-
-                    theme: "grid",
-
-                }
-            );
-
-        }
-
-
-        // ==================================================
-        // CHART 1 - CATEGORY BAR
-        // ==================================================
-
-        if (
-            sortedCategories.length > 0
-        ) {
-
-            const labels =
-                sortedCategories
-                .slice(
-                    0,
-                    10
-                )
-                .map(
-                    ([category]) =>
-                    category
-                );
-
-
-            const values =
-                sortedCategories
-                .slice(
-                    0,
-                    10
-                )
-                .map(
-                    ([, count]) =>
-                    count
-                );
-
-
-            const image =
-                await createChartImage({
-                    type: "bar",
-                    labels,
-                    data: values,
-                    label: "Records",
-                });
-
-
-            doc.addPage();
-
-
-            doc.setFontSize(
-                18
-            );
-
-            doc.setFont(
-                "helvetica",
-                "bold"
-            );
-
-
-            doc.text(
-                "Category Distribution",
-                14,
-                20
-            );
-
-
-            doc.setFontSize(
-                9
-            );
-
-            doc.setFont(
-                "helvetica",
-                "normal"
-            );
-
-
-            doc.text(
-                `Category column: ${categoryColumn}`,
-                14,
-                28
-            );
-
-
-            doc.addImage(
-                image,
-                "PNG",
-                14,
-                38,
-                180,
-                90
-            );
-
-        }
-
-
-        // ==================================================
-        // CHART 2 - DATE LINE
-        // ==================================================
-
-        if (
-            sortedDates.length > 0
-        ) {
-
-            const labels =
-                sortedDates.map(
-                    ([date]) =>
-                    date
-                );
-
-
-            const values =
-                sortedDates.map(
-                    ([, count]) =>
-                    count
-                );
-
-
-            const image =
-                await createChartImage({
-                    type: "line",
-                    labels,
-                    data: values,
-                    label: "Records",
-                });
-
-
-            doc.addPage();
-
-
-            doc.setFontSize(
-                18
-            );
-
-            doc.setFont(
-                "helvetica",
-                "bold"
-            );
-
-
-            doc.text(
-                "Data Trend Over Time",
-                14,
-                20
-            );
-
-
-            doc.setFontSize(
-                9
-            );
-
-            doc.setFont(
-                "helvetica",
-                "normal"
-            );
-
-
-            doc.text(
-                `Date column: ${dateColumn}`,
-                14,
-                28
-            );
-
-
-            doc.addImage(
-                image,
-                "PNG",
-                14,
-                38,
-                180,
-                90
-            );
-
-        }
-
-
-        // ==================================================
-        // CHART 3 - DOUGHNUT
-        // ==================================================
-
-        if (
-            sortedCategories.length > 0
-        ) {
-
-            const labels =
-                sortedCategories
-                .slice(
-                    0,
-                    8
-                )
-                .map(
-                    ([category]) =>
-                    category
-                );
-
-
-            const values =
-                sortedCategories
-                .slice(
-                    0,
-                    8
-                )
-                .map(
-                    ([, count]) =>
-                    count
-                );
-
-
-            const image =
-                await createChartImage({
-                    type: "doughnut",
-                    labels,
-                    data: values,
-                    label: "Category Share",
-                });
-
-
-            doc.addPage();
-
-
-            doc.setFontSize(
-                18
-            );
-
-            doc.setFont(
-                "helvetica",
-                "bold"
-            );
-
-
-            doc.text(
-                "Category Share",
-                14,
-                20
-            );
-
-
-            doc.setFontSize(
-                9
-            );
-
-            doc.setFont(
-                "helvetica",
-                "normal"
-            );
-
-
-            doc.text(
-                `Category column: ${categoryColumn}`,
-                14,
-                28
-            );
-
-
-            doc.addImage(
-                image,
-                "PNG",
-                25,
-                40,
-                160,
-                120
-            );
-
-        }
-
-
-        // ==================================================
-        // NUMERIC ANALYSIS
-        // ==================================================
-
-        doc.addPage();
-
-
-        doc.setFontSize(
-            18
+            ],
+        ];
+
+        autoTable(doc, {
+            startY: y,
+            head: [
+                ["Metric", "Value"]
+            ],
+            body: qualityRows,
+            theme: "grid",
+
+            headStyles: {
+                fillColor: [79, 70, 229],
+                textColor: 255,
+                fontStyle: "bold",
+            },
+
+            alternateRowStyles: {
+                fillColor: [248, 250, 252],
+            },
+
+            bodyStyles: {
+                fontSize: 9,
+            },
+
+            margin: {
+                left: 14,
+                right: 14,
+            },
+        });
+
+        y =
+            doc.lastAutoTable.finalY + 18;
+
+        y = addSectionTitle(
+            doc,
+            "Numeric Columns",
+            y
         );
 
-        doc.setFont(
-            "helvetica",
-            "bold"
-        );
-
-
-        doc.text(
-            "Numeric Column Analysis",
-            14,
-            20
-        );
-
-
-        const numericStatistics =
-            numericColumns.map(
-                (column) => {
-
-                    const values =
-                        rows
-                        .map(
-                            (row) =>
-                            Number(
-                                row[column]
-                            )
+        const numericRows =
+            numericColumns.length > 0 ?
+            numericColumns.map((column) => {
+                const values = rows
+                    .map((row) =>
+                        toNumber(
+                            row ? .[column]
                         )
-                        .filter(
-                            (value) =>
-                            !isNaN(value)
-                        );
+                    )
+                    .filter(
+                        (value) =>
+                        value !== null
+                    );
 
+                const sum = values.reduce(
+                    (acc, value) =>
+                    acc + value,
+                    0
+                );
 
-                    if (
-                        values.length === 0
-                    ) {
-                        return null;
-                    }
+                const average =
+                    values.length > 0 ?
+                    sum /
+                    values.length :
+                    0;
 
+                const min =
+                    values.length > 0 ?
+                    Math.min(
+                        ...values
+                    ) :
+                    0;
 
-                    const total =
-                        values.reduce(
-                            (
-                                sum,
-                                value
-                            ) =>
-                            sum + value,
-                            0
-                        );
+                const max =
+                    values.length > 0 ?
+                    Math.max(
+                        ...values
+                    ) :
+                    0;
 
-
-                    const average =
-                        total /
-                        values.length;
-
-
-                    return [
-                        column,
-
-                        total.toLocaleString(
-                            undefined, {
-                                maximumFractionDigits: 2,
-                            }
-                        ),
-
-                        average.toLocaleString(
-                            undefined, {
-                                maximumFractionDigits: 2,
-                            }
-                        ),
-
-                        Math.min(
-                            ...values
-                        ).toLocaleString(),
-
-                        Math.max(
-                            ...values
-                        ).toLocaleString(),
-                    ];
-
-                }
-            )
-            .filter(Boolean);
-
-
-        if (
-            numericStatistics.length > 0
-        ) {
-
-            autoTable(
-                doc, {
-
-                    startY: 28,
-
-                    head: [
-                        [
-                            "Column",
-                            "Total",
-                            "Average",
-                            "Minimum",
-                            "Maximum",
-                        ],
-                    ],
-
-                    body: numericStatistics,
-
-                    theme: "grid",
-
-                    styles: {
-                        fontSize: 8,
-                    },
-
-                }
-            );
-
-        }
-
-
-        // ==================================================
-        // CATEGORY TABLE
-        // ==================================================
-
-        if (
-            sortedCategories.length > 0
-        ) {
-
-            doc.addPage();
-
-
-            doc.setFontSize(
-                18
-            );
-
-            doc.setFont(
-                "helvetica",
-                "bold"
-            );
-
-
-            doc.text(
-                "Category Analysis",
-                14,
-                20
-            );
-
-
-            autoTable(
-                doc, {
-
-                    startY: 28,
-
-                    head: [
-                        [
-                            "Category",
-                            "Records",
-                        ],
-                    ],
-
-                    body: sortedCategories.map(
-                        ([category, count]) => [
-                            category,
-                            count,
-                        ]
+                return [
+                    column,
+                    formatInteger(
+                        values.length
                     ),
+                    formatNumber(min),
+                    formatNumber(max),
+                    formatNumber(average),
+                    formatNumber(sum),
+                ];
+            }) :
+            [
+                [
+                    "No numeric columns detected",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                ],
+            ];
 
-                    theme: "grid",
+        autoTable(doc, {
+            startY: y,
+            head: [
+                [
+                    "Column",
+                    "Values",
+                    "Minimum",
+                    "Maximum",
+                    "Average",
+                    "Sum",
+                ],
+            ],
+            body: numericRows,
+            theme: "grid",
 
-                }
-            );
+            headStyles: {
+                fillColor: [79, 70, 229],
+                textColor: 255,
+                fontStyle: "bold",
+            },
 
-        }
+            bodyStyles: {
+                fontSize: 7,
+            },
 
+            alternateRowStyles: {
+                fillColor: [248, 250, 252],
+            },
 
-        // ==================================================
-        // DATA PREVIEW
-        // ==================================================
+            margin: {
+                left: 14,
+                right: 14,
+            },
+        });
+
+        // ========================================================
+        // PAGE 3 — BUSINESS ANALYSIS
+        // ========================================================
 
         doc.addPage();
 
-
-        doc.setFontSize(
-            18
+        addPageHeader(
+            doc,
+            "Order Analytics Report"
         );
 
-        doc.setFont(
-            "helvetica",
-            "bold"
+        y = 30;
+
+        y = addSectionTitle(
+            doc,
+            "Business Metrics",
+            y
         );
 
+        const businessRows = [
+            [
+                "Total records",
+                formatInteger(totalRows),
+            ],
+            [
+                "Total revenue",
+                salesColumn ?
+                `₹${formatNumber(
+                          totalSales
+                      )}` :
+                "Revenue column not detected",
+            ],
+            [
+                "Total quantity",
+                quantityColumn ?
+                formatNumber(
+                    totalQuantity
+                ) :
+                "Quantity column not detected",
+            ],
+            [
+                "Average order value",
+                salesColumn ?
+                `₹${formatNumber(
+                          averageOrderValue
+                      )}` :
+                "Not available",
+            ],
+            [
+                "Categories",
+                categoryCounts.length > 0 ?
+                formatInteger(
+                    categoryCounts.length
+                ) :
+                "Not detected",
+            ],
+            [
+                "Products",
+                productCounts.length > 0 ?
+                formatInteger(
+                    productCounts.length
+                ) :
+                "Not detected",
+            ],
+            [
+                "Locations",
+                cityCounts.length > 0 ?
+                formatInteger(
+                    cityCounts.length
+                ) :
+                "Not detected",
+            ],
+        ];
 
-        doc.text(
-            "Analyzed Data Preview",
-            14,
-            20
-        );
+        autoTable(doc, {
+            startY: y,
+            head: [
+                ["Business metric", "Result"]
+            ],
+            body: businessRows,
+            theme: "grid",
 
+            headStyles: {
+                fillColor: [79, 70, 229],
+                textColor: 255,
+                fontStyle: "bold",
+            },
 
-        const previewRows =
-            rows
-            .slice(
-                0,
-                50
-            )
-            .map(
-                (row) =>
-                columns.map(
-                    (column) => {
+            bodyStyles: {
+                fontSize: 8,
+            },
 
-                        const value =
-                            row[column];
+            alternateRowStyles: {
+                fillColor: [248, 250, 252],
+            },
 
+            margin: {
+                left: 14,
+                right: 14,
+            },
+        });
 
-                        if (
-                            value === null ||
-                            value === undefined
-                        ) {
+        // ========================================================
+        // CATEGORY TABLE
+        // ========================================================
 
-                            return "";
+        if (categoryCounts.length > 0) {
+            y =
+                doc.lastAutoTable.finalY + 16;
 
-                        }
-
-
-                        return String(
-                            value
-                        );
-
-                    }
-                )
+            y = addSectionTitle(
+                doc,
+                "Category Analysis",
+                y
             );
 
+            const categoryMap = new Map(
+                categorySales.map((item) => [
+                    item.label,
+                    item.value,
+                ])
+            );
 
-        autoTable(
-            doc, {
+            const categoryRows =
+                categoryCounts
+                .slice(0, 15)
+                .map((item, index) => [
+                    String(index + 1),
+                    truncateText(
+                        item.label,
+                        35
+                    ),
+                    formatInteger(
+                        item.value
+                    ),
+                    salesColumn &&
+                    categoryMap.has(
+                        item.label
+                    ) ?
+                    `₹${formatNumber(
+                                  categoryMap.get(
+                                      item.label
+                                  )
+                              )}` :
+                    "-",
+                ]);
 
-                startY: 28,
-
+            autoTable(doc, {
+                startY: y,
                 head: [
-                    columns,
+                    [
+                        "#",
+                        "Category",
+                        "Records",
+                        "Revenue",
+                    ],
                 ],
-
-                body: previewRows,
-
+                body: categoryRows,
                 theme: "grid",
-
-                styles: {
-                    fontSize: 5.5,
-                },
 
                 headStyles: {
-                    fontSize: 6,
+                    fillColor: [79, 70, 229],
+                    textColor: 255,
                     fontStyle: "bold",
                 },
 
-            }
-        );
+                bodyStyles: {
+                    fontSize: 8,
+                },
 
+                alternateRowStyles: {
+                    fillColor: [248, 250, 252],
+                },
 
-        // ==================================================
-        // FINAL INSIGHTS
-        // ==================================================
+                margin: {
+                    left: 14,
+                    right: 14,
+                },
+            });
+        }
+
+        // ========================================================
+        // PAGE 4 — DATA PREVIEW
+        // ========================================================
 
         doc.addPage();
 
-
-        doc.setFontSize(
-            18
+        addPageHeader(
+            doc,
+            "Order Analytics Report"
         );
 
-        doc.setFont(
-            "helvetica",
-            "bold"
+        y = 30;
+
+        y = addSectionTitle(
+            doc,
+            "Data Preview",
+            y
         );
 
+        const previewRows = rows
+            .slice(0, 20)
+            .map((row) =>
+                columns.map((column) =>
+                    truncateText(
+                        row ? .[column],
+                        25
+                    )
+                )
+            );
 
-        doc.text(
-            "Final Analysis Insights",
-            14,
-            20
+        const previewColumns =
+            columns.length > 8 ?
+            columns.slice(0, 8) :
+            columns;
+
+        const finalPreviewRows =
+            rows
+            .slice(0, 20)
+            .map((row) =>
+                previewColumns.map(
+                    (column) =>
+                    truncateText(
+                        row ? .[column],
+                        22
+                    )
+                )
+            );
+
+        if (previewRows.length > 0) {
+            autoTable(doc, {
+                startY: y,
+                head: [
+                    previewColumns.map(
+                        (column) =>
+                        truncateText(
+                            column,
+                            18
+                        )
+                    ),
+                ],
+                body: finalPreviewRows,
+                theme: "grid",
+
+                styles: {
+                    fontSize: 6,
+                    cellPadding: 2,
+                    overflow: "linebreak",
+                },
+
+                headStyles: {
+                    fillColor: [79, 70, 229],
+                    textColor: 255,
+                    fontStyle: "bold",
+                    fontSize: 6,
+                },
+
+                alternateRowStyles: {
+                    fillColor: [248, 250, 252],
+                },
+
+                margin: {
+                    left: 10,
+                    right: 10,
+                },
+            });
+        } else {
+            doc.setFontSize(10);
+            doc.setTextColor(MUTED_TEXT);
+
+            doc.text(
+                "No data rows available for preview.",
+                14,
+                y + 10
+            );
+        }
+
+        // ========================================================
+        // CHART 1 — CATEGORY DISTRIBUTION
+        // ========================================================
+
+        if (categoryCounts.length > 0) {
+            await addChartPage(doc, {
+                title: "Category Distribution",
+                type: "bar",
+
+                labels: categoryCounts
+                    .slice(0, 10)
+                    .map((item) =>
+                        truncateText(
+                            item.label,
+                            20
+                        )
+                    ),
+
+                data: categoryCounts
+                    .slice(0, 10)
+                    .map(
+                        (item) =>
+                        item.value
+                    ),
+
+                label: "Records",
+                colors: COLORS,
+                isCurrency: false,
+            });
+        }
+
+        // ========================================================
+        // CHART 2 — REVENUE BY CATEGORY
+        // ========================================================
+
+        if (
+            salesColumn &&
+            categorySales.length > 0
+        ) {
+            await addChartPage(doc, {
+                title: "Revenue by Category",
+                type: "bar",
+
+                labels: categorySales
+                    .slice(0, 10)
+                    .map((item) =>
+                        truncateText(
+                            item.label,
+                            20
+                        )
+                    ),
+
+                data: categorySales
+                    .slice(0, 10)
+                    .map(
+                        (item) =>
+                        Number(
+                            item.value.toFixed(
+                                2
+                            )
+                        )
+                    ),
+
+                label: "Revenue",
+                colors: COLORS,
+                isCurrency: true,
+            });
+        }
+
+        // ========================================================
+        // CHART 3 — CATEGORY SHARE
+        // ========================================================
+
+        if (categoryCounts.length > 0) {
+            await addChartPage(doc, {
+                title: "Category Share",
+                type: "doughnut",
+
+                labels: categoryCounts
+                    .slice(0, 8)
+                    .map((item) =>
+                        truncateText(
+                            item.label,
+                            25
+                        )
+                    ),
+
+                data: categoryCounts
+                    .slice(0, 8)
+                    .map(
+                        (item) =>
+                        item.value
+                    ),
+
+                label: "Records",
+                colors: COLORS,
+                isCurrency: false,
+            });
+        }
+
+        // ========================================================
+        // CHART 4 — DATE TREND
+        // ========================================================
+
+        if (dateTrend.length > 0) {
+            const useRevenue =
+                salesColumn &&
+                dateTrend.some(
+                    (item) =>
+                    item.value > 0
+                );
+
+            await addChartPage(doc, {
+                title: useRevenue ?
+                    "Revenue Trend Over Time" :
+                    "Records Trend Over Time",
+
+                type: "line",
+
+                labels: dateTrend.map(
+                    (item) =>
+                    formatDateLabel(
+                        item.date
+                    )
+                ),
+
+                data: dateTrend.map(
+                    (item) =>
+                    useRevenue ?
+                    Number(
+                        item.value.toFixed(
+                            2
+                        )
+                    ) :
+                    item.count
+                ),
+
+                label: useRevenue ?
+                    "Revenue" :
+                    "Records",
+
+                colors: COLORS,
+
+                isCurrency: useRevenue,
+            });
+        }
+
+        // ========================================================
+        // CHART 5 — CITY DISTRIBUTION
+        // ========================================================
+
+        if (cityCounts.length > 0) {
+            await addChartPage(doc, {
+                title: "Location Distribution",
+                type: "bar",
+
+                labels: cityCounts
+                    .slice(0, 10)
+                    .map((item) =>
+                        truncateText(
+                            item.label,
+                            20
+                        )
+                    ),
+
+                data: cityCounts
+                    .slice(0, 10)
+                    .map(
+                        (item) =>
+                        item.value
+                    ),
+
+                label: "Records",
+                colors: COLORS,
+                isCurrency: false,
+            });
+        }
+
+        // ========================================================
+        // CHART 6 — PRODUCT REVENUE
+        // ========================================================
+
+        if (
+            salesColumn &&
+            productSales.length > 0
+        ) {
+            await addChartPage(doc, {
+                title: "Top Products by Revenue",
+                type: "bar",
+
+                labels: productSales
+                    .slice(0, 10)
+                    .map((item) =>
+                        truncateText(
+                            item.label,
+                            20
+                        )
+                    ),
+
+                data: productSales
+                    .slice(0, 10)
+                    .map(
+                        (item) =>
+                        Number(
+                            item.value.toFixed(
+                                2
+                            )
+                        )
+                    ),
+
+                label: "Revenue",
+                colors: COLORS,
+                isCurrency: true,
+            });
+        }
+
+        // ========================================================
+        // FINAL INSIGHTS PAGE
+        // ========================================================
+
+        doc.addPage();
+
+        addPageHeader(
+            doc,
+            "Order Analytics Report"
         );
 
+        y = 30;
+
+        y = addSectionTitle(
+            doc,
+            "Key Insights",
+            y
+        );
 
         const insights = [];
 
+        // Revenue insight
 
-        insights.push(
-            `The dataset contains ${totalRows} records and ${totalColumns} columns.`
-        );
-
-
-        insights.push(
-            `${totalFiles} file(s) were analyzed.`
-        );
-
-
-        if (
-            numericColumns.length > 0
-        ) {
-
+        if (salesColumn) {
             insights.push(
-                `${numericColumns.length} numeric column(s) were identified.`
+                `Total revenue across the dataset is ₹${formatNumber(
+                    totalSales
+                )}.`
             );
 
+            if (totalRows > 0) {
+                insights.push(
+                    `The average revenue per record is ₹${formatNumber(
+                        averageOrderValue
+                    )}.`
+                );
+            }
         }
 
+        // Quantity insight
 
-        if (
-            missingValues > 0
-        ) {
-
+        if (quantityColumn) {
             insights.push(
-                `${missingValues} missing value(s) were detected.`
+                `The dataset contains a total quantity of ${formatNumber(
+                    totalQuantity
+                )}.`
             );
-
-        } else {
-
-            insights.push(
-                "No missing values were detected."
-            );
-
         }
 
+        // Category insight
 
-        if (
-            duplicateRows > 0
-        ) {
+        if (categoryCounts.length > 0) {
+            const topCategory =
+                categoryCounts[0];
 
             insights.push(
-                `${duplicateRows} duplicate row(s) were detected.`
+                `The largest category by record count is "${truncateText(
+                    topCategory.label,
+                    40
+                )}" with ${formatInteger(
+                    topCategory.value
+                )} records.`
             );
+        }
 
+        // Category revenue insight
+
+        if (categorySales.length > 0) {
+            const topRevenueCategory =
+                categorySales[0];
+
+            insights.push(
+                `The highest-revenue category is "${truncateText(
+                    topRevenueCategory.label,
+                    40
+                )}" with revenue of ₹${formatNumber(
+                    topRevenueCategory.value
+                )}.`
+            );
+        }
+
+        // Product insight
+
+        if (productCounts.length > 0) {
+            const topProduct =
+                productCounts[0];
+
+            insights.push(
+                `The most frequently occurring product is "${truncateText(
+                    topProduct.label,
+                    40
+                )}" with ${formatInteger(
+                    topProduct.value
+                )} records.`
+            );
+        }
+
+        // Location insight
+
+        if (cityCounts.length > 0) {
+            const topLocation =
+                cityCounts[0];
+
+            insights.push(
+                `The most represented location is "${truncateText(
+                    topLocation.label,
+                    40
+                )}" with ${formatInteger(
+                    topLocation.value
+                )} records.`
+            );
+        }
+
+        // Data quality insight
+
+        if (missingValues === 0) {
+            insights.push(
+                "The dataset contains no missing values."
+            );
         } else {
+            insights.push(
+                `The dataset contains ${formatInteger(
+                    missingValues
+                )} missing values (${missingPercentage.toFixed(
+                    2
+                )}% of all cells).`
+            );
+        }
 
+        if (duplicateRows === 0) {
             insights.push(
                 "No duplicate rows were detected."
             );
-
+        } else {
+            insights.push(
+                `${formatInteger(
+                    duplicateRows
+                )} duplicate rows were detected.`
+            );
         }
 
+        // Date insight
 
-        if (salesColumn) {
+        if (dateTrend.length > 1) {
+            const firstDate =
+                dateTrend[0].date;
+
+            const lastDate =
+                dateTrend[
+                    dateTrend.length - 1
+                ].date;
 
             insights.push(
-                `Total sales/revenue: ${totalSales.toLocaleString(
-          undefined,
-          {
-            maximumFractionDigits: 2,
-          }
-        )}.`
+                `The detected date range runs from ${formatDateLabel(
+                    firstDate
+                )} to ${formatDateLabel(
+                    lastDate
+                )}.`
             );
-
         }
 
-
-        if (quantityColumn) {
-
+        if (insights.length === 0) {
             insights.push(
-                `Total quantity: ${totalQuantity.toLocaleString()}.`
+                "Not enough structured information was detected to generate additional business insights."
             );
-
         }
 
-
-        if (categoryColumn) {
-
-            insights.push(
-                `${Object.keys(categoryCounts).length} unique categories were identified.`
-            );
-
-        }
-
-
-        let insightY = 32;
-
-
-        doc.setFontSize(
-            11
-        );
-
-        doc.setFont(
-            "helvetica",
-            "normal"
-        );
-
+        let insightY = y;
 
         insights.forEach(
-            (
-                insight,
-                index
-            ) => {
+            (insight, index) => {
+                const bulletX = 18;
+                const textX = 25;
 
-                const text =
-                    `${index + 1}. ${insight}`;
+                doc.setFillColor(
+                    79,
+                    70,
+                    229
+                );
 
+                doc.circle(
+                    bulletX,
+                    insightY - 1.5,
+                    1.5,
+                    "F"
+                );
 
-                const wrapped =
+                doc.setTextColor(
+                    DARK_TEXT
+                );
+
+                doc.setFont(
+                    "helvetica",
+                    "normal"
+                );
+
+                doc.setFontSize(10);
+
+                const lines =
                     doc.splitTextToSize(
-                        text,
-                        180
+                        insight,
+                        170
                     );
 
-
                 doc.text(
-                    wrapped,
-                    14,
+                    lines,
+                    textX,
                     insightY
                 );
 
-
                 insightY +=
-                    wrapped.length *
-                    6 +
-                    5;
-
+                    lines.length * 6 +
+                    7;
             }
         );
 
-
-        // ==================================================
-        // FOOTER
-        // ==================================================
+        // ========================================================
+        // FOOTER ON ALL PAGES
+        // ========================================================
 
         const pageCount =
-            doc.internal.getNumberOfPages();
-
+            doc.getNumberOfPages();
 
         for (
-            let i = 1; i <= pageCount; i++
+            let page = 1; page <= pageCount; page++
         ) {
+            doc.setPage(page);
 
-            doc.setPage(i);
-
-
-            doc.setFontSize(
-                8
+            doc.setDrawColor(
+                229,
+                231,
+                235
             );
 
+            doc.line(
+                14,
+                286,
+                196,
+                286
+            );
+
+            doc.setTextColor(
+                MUTED_TEXT
+            );
+
+            doc.setFontSize(7);
             doc.setFont(
                 "helvetica",
                 "normal"
             );
 
-
             doc.text(
-                `Order Analytics | Page ${i} of ${pageCount}`,
+                "Generated by Order Analytics",
                 14,
-                290
+                292
             );
 
+            doc.text(
+                `Page ${page} of ${pageCount}`,
+                174,
+                292
+            );
         }
 
-
-        // ==================================================
+        // ========================================================
         // DOWNLOAD
-        // ==================================================
+        // ========================================================
+
+        const dateString =
+            new Date()
+            .toISOString()
+            .split("T")[0];
 
         doc.save(
-            "Order_Analytics_Final_Report.pdf"
+            `order-analysis-report-${dateString}.pdf`
+        );
+    } catch (error) {
+        console.error(
+            "Final analysis report generation failed:",
+            error
         );
 
-    };
+        alert(
+            "Unable to generate the PDF report. Please check the browser console for details."
+        );
+    }
+};
+
+// ============================================================
+// DEFAULT EXPORT
+// ============================================================
+
+export default downloadFinalAnalysisReport;
